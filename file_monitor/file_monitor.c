@@ -7,6 +7,9 @@
 #include <unistd.h>
 #include <sys/inotify.h>
 #include <sys/types.h>
+#include <sys/stat.h>
+
+#include "file_monitor.h"
 
 //struct inotify_event
 //{
@@ -53,16 +56,16 @@ void file_monitor_inotify ( char *file_path )
 			abort();
 		}
 
+	char event_buf[EVENT_BUF_LEN];
 	while ( true )
 	{
 		// block read event 
-		char buf[EVENT_BUF_LEN];
-		ssize_t	n_read = read_n_byte( fd, buf, EVENT_BUF_LEN );
+		ssize_t	n_read = read_n_byte( fd, event_buf, EVENT_BUF_LEN );
 		struct inotify_event *event;
 		printf( "[Monitor] read %ld event\n", n_read / EVENT_SIZE );
 		for ( ssize_t i = 0; i < n_read; i += (EVENT_SIZE + event->len) )
 		{
-			event = (struct inotify_event *) &buf[i];
+			event = (struct inotify_event *) &event_buf[i];
 			if ( event->mask & IN_ACCESS )
 			{
 				printf( "[Monitor] %s be accessed\n", file_path );
@@ -101,7 +104,7 @@ end_monitor:
 
 }
 
-void dir_monitor_inotify ( char *dir_path )
+void dir_monitor_inotify ( char *watch_dir )
 {
 	// create inotify instance
 	int init_flag = 0; // flag can be IN_NONBLOCK or IN_CLOEXEC
@@ -117,23 +120,26 @@ void dir_monitor_inotify ( char *dir_path )
 	// IN_MODIFY: write, truncate
 	// IN_DELETE_SELF: monitor file be delete
 	uint32_t mask = IN_ACCESS | IN_MODIFY | IN_OPEN | IN_CREATE | IN_DELETE | IN_DELETE_SELF;
-	int wd = inotify_add_watch( fd, dir_path, mask );
+	int wd = inotify_add_watch( fd, watch_dir, mask );
 	if ( -1 == wd )
 	{
 		fprintf( stderr, "[Error] in %s: inotify_add_watch fail -> %s\n", __func__, strerror(errno) );
 		abort();
 	}
 	
+	bool is_dir;
+	char *event_file_type;
+	char event_buf[EVENT_BUF_LEN];
+	char event_file_path[BUFSIZ];
 	while ( true )
 	{
 		// pre-compute event counts
 		size_t n_event = 0;
-		char buf[EVENT_BUF_LEN];
-		ssize_t	n_read = read_n_byte( fd, buf, EVENT_BUF_LEN );
+		ssize_t	n_read = read_n_byte( fd, event_buf, EVENT_BUF_LEN );
 		struct inotify_event *event;
 		for ( ssize_t i = 0; i < n_read; i += (EVENT_SIZE + event->len) )
 		{
-			event = (struct inotify_event *) &buf[i];
+			event = (struct inotify_event *) &event_buf[i];
 			++n_event;
 		}
 		printf( "[Monitor] read %ld event\n", n_event );
@@ -141,7 +147,28 @@ void dir_monitor_inotify ( char *dir_path )
 		// show events
 		for ( ssize_t i = 0; i < n_read; i += (EVENT_SIZE + event->len) )
 		{
-			event = (struct inotify_event *) &buf[i];
+			event = (struct inotify_event *) &event_buf[i];
+			if ( (0 != event->len) && !(event->mask & IN_DELETE ) )
+			{
+				sprintf( event_file_path, "%s/%s", watch_dir, event->name );
+				if ( check_file_exist(event_file_path) )
+				{
+					is_dir = check_is_dir( event_file_path );
+					if ( is_dir )
+					{
+						event_file_type = "directory";
+					}
+					else
+					{
+						event_file_type = "file";
+					}
+				}
+				else
+				{
+					printf( "[Warning] query %s stat fail\n", event_file_path );
+				}
+			}
+
 			if ( event->mask & IN_CREATE )
 			{
 				if ( 0 == event->len )
@@ -149,7 +176,7 @@ void dir_monitor_inotify ( char *dir_path )
 					fprintf( stderr, "[Error] event->len=0 when file create in monitored directory\n" );
 					abort();
 				}
-				printf( "[Monitor] %s be create in %s\n", event->name, dir_path );
+				printf( "[Monitor] in %s: %s %s be create\n", watch_dir, event_file_type, event->name );
 			}
 			else if ( event->mask & IN_DELETE )
 			{
@@ -158,24 +185,42 @@ void dir_monitor_inotify ( char *dir_path )
 					fprintf( stderr, "[Error] event->len=0 when file delete in monitored directory\n" );
 					abort();
 				}
-				printf( "[Monitor] %s be delete in %s\n", event->name, dir_path );
+				printf( "[Monitor] in %s: entry %s be delete\n", watch_dir, event->name );
 			}
 			else if ( event->mask & IN_OPEN )
 			{
-				printf( "[Monitor] %s be open\n", dir_path );
+				if ( 0 == event->len )
+				{
+					printf( "[Monitor] %s be opened\n", watch_dir );
+				}
+				else
+				{
+					printf( "[Monitor] in %s: %s %s be opened\n", watch_dir, event_file_type, event->name );
+				}
+			}
+			else if ( event->mask & IN_ACCESS )
+			{
+				if ( 0 == event->len )
+				{
+					printf( "[Monitor] %s be accessed\n", watch_dir );
+				}
+				else
+				{
+					printf( "[Monitor] in %s: %s %s be accessed\n", watch_dir, event_file_type, event->name );
+				}
 			}
 			else if ( event->mask & IN_MODIFY )
 			{
-				printf( "[Monitor] %s be modified\n", dir_path );
+				printf( "[Monitor] in %s: %s %s be modified\n", watch_dir, event_file_type, event->name );
 			}
 			else if ( event->mask & IN_DELETE_SELF )
 			{
-				printf( "[Monitor] %s be delete\n", dir_path );
+				printf( "[Monitor] watch target %s be delete\n", watch_dir );
 				goto end_monitor;
 			}
 			else if ( event->mask & IN_IGNORED )
 			{
-				printf( "[Monitor] %s be ignored\n", dir_path ); // follow by IN_DELETE_SELF
+				printf( "[Monitor] watch target %s be ignored\n", watch_dir ); // follow by IN_DELETE_SELF
 				goto end_monitor;
 			}
 			else
@@ -218,13 +263,13 @@ void file_monitor_fanotify ( char *file_path )
 	}
 	
 	// block read event 
-	char buf[EVENT_BUF_LEN];
-	ssize_t	n_read = read_n_byte( fd, buf, EVENT_BUF_LEN );
+	char event_buf[EVENT_BUF_LEN];
+	ssize_t	n_read = read_n_byte( fd, event_buf, EVENT_BUF_LEN );
 	struct inotify_event *event;
 	printf( "[Monitor] read %ld event\n", n_read / EVENT_SIZE );
 	for ( ssize_t i = 0; i < n_read; i += (EVENT_SIZE + event->len) )
 	{
-		event = (struct inotify_event *) &buf[i];
+		event = (struct inotify_event *) &event_buf[i];
 		if ( event->mask & IN_ACCESS )
 		{
 			printf( "[Monitor] %s be accessed\n", file_path );
@@ -249,3 +294,36 @@ void file_monitor_fanotify ( char *file_path )
 	close( fd );
 
 }
+
+bool check_is_dir ( char *path )
+{
+	struct stat st_buf;
+	if ( -1 == stat( path, &st_buf ) )
+	{
+		fprintf( stderr, "[Error] query target %s stat fail --> %s\n", path, strerror(errno) );
+		abort();
+	}
+	if ( S_ISDIR(st_buf.st_mode) )
+	{
+		return true;
+	}
+	else
+	{
+		return false;
+	}
+}
+
+bool check_file_exist ( char *path )
+{
+	struct stat st_buf;
+	if ( -1 == stat( path, &st_buf ) )
+	{
+		if ( ENOENT == errno )
+		{
+			return false;
+		}
+	}
+
+	return true;
+}
+

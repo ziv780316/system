@@ -26,7 +26,7 @@ MOVE       = mv -f
 #=================================================
 LIBRARY_DIR       := library
 BIN_DIR       	  := bin
-OBJS              := main.o file_monitor.o
+OBJS              := main.o opts.o file_monitor.o
 TARGET            := test
 
 #=================================================
