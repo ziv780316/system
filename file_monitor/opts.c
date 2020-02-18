@@ -69,7 +69,12 @@ void parse_cmd_options ( int argc, char **argv )
 				break;
 
 			case 'i':
-				g_opts.watch_target_path = optarg;
+				g_opts.watch_target_path = (char *) malloc( (strlen(optarg) + 1) * sizeof(char) );
+				strcpy( g_opts.watch_target_path, optarg );
+				if ( '/' == g_opts.watch_target_path[strlen(optarg) - 1] )
+				{
+					g_opts.watch_target_path[strlen(optarg) - 1] = '\0';
+				}
 				break;
 
 			case 'r':
@@ -98,7 +103,7 @@ void parse_cmd_options ( int argc, char **argv )
 	}
 
 	// check arguments
-	if ( check_is_dir(g_opts.watch_target_path) )
+	if ( 1 == check_is_dir(g_opts.watch_target_path) )
 	{
 		printf( "[Monitor] watch directory target %s\n", g_opts.watch_target_path );
 		g_opts.watch_type = WATCH_TYPE_DIR;

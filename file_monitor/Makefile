@@ -17,7 +17,7 @@ LINKER     = $(CC)
 DEFINES    = 
 BUILD_TYPE = -g3
 CFLAGS     = $(BUILD_TYPE) -Wfatal-errors -Wall -Wextra -Wenum-compare -std=gnu99 -fPIC 
-LIBS       = -L.
+LIBS       = -L. -lpthread
 INCLUDE    = -I.
 MOVE       = mv -f
 

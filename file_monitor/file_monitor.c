@@ -8,8 +8,11 @@
 #include <sys/inotify.h>
 #include <sys/types.h>
 #include <sys/stat.h>
+#include <sys/syscall.h>
+#include <pthread.h>
 
 #include "file_monitor.h"
+#include "opts.h"
 
 //struct inotify_event
 //{
@@ -22,15 +25,16 @@
 #define EVENT_SIZE (sizeof(struct inotify_event))
 #define EVENT_BUF_LEN (1024 * (EVENT_SIZE + 16))
 
-static ssize_t read_n_byte( int fd, void *buf, int len )
+// =========================================
+// File monitor API
+// =========================================
+
+static void *thread_dir_monitor_inotify ( void *arg )
 {
-	ssize_t	n_read = read( fd, buf, len );
-	if ( -1 == n_read )
-	{
-		fprintf( stderr, "[Error] in %s: read fail -> %s\n", __func__, strerror(errno) );
-		abort();
-	}
-	return n_read;
+	char *dir_path = (char *) arg;
+	printf( "[Monitor] create thread TID=%ld to monitor %s\n", syscall( SYS_gettid ), dir_path );
+	dir_monitor_inotify( dir_path );
+	return NULL;
 }
 
 void file_monitor_inotify ( char *file_path )
@@ -68,24 +72,24 @@ void file_monitor_inotify ( char *file_path )
 			event = (struct inotify_event *) &event_buf[i];
 			if ( event->mask & IN_ACCESS )
 			{
-				printf( "[Monitor] %s be accessed\n", file_path );
+				printf( "[Monitor] file %s be accessed\n", file_path );
 			}
 			else if ( event->mask & IN_MODIFY )
 			{
-				printf( "[Monitor] %s be modified\n", file_path );
+				printf( "[Monitor] file %s be modified\n", file_path );
 			}
 			else if ( event->mask & IN_OPEN )
 			{
-				printf( "[Monitor] %s be open\n", file_path );
+				printf( "[Monitor] file %s be open\n", file_path );
 			}
 			else if ( event->mask & IN_DELETE_SELF )
 			{
-				printf( "[Monitor] %s be delete\n", file_path );
+				printf( "[Monitor] file %s be delete\n", file_path );
 				goto end_monitor;
 			}
 			else if ( event->mask & IN_IGNORED )
 			{
-				printf( "[Monitor] %s be ignored\n", file_path ); // follow by IN_DELETE_SELF
+				printf( "[Monitor] file %s be ignored\n", file_path ); // follow by IN_DELETE_SELF
 				goto end_monitor;
 			}
 			else
@@ -127,8 +131,6 @@ void dir_monitor_inotify ( char *watch_dir )
 		abort();
 	}
 	
-	bool is_dir;
-	char *event_file_type;
 	char event_buf[EVENT_BUF_LEN];
 	char event_file_path[BUFSIZ];
 	while ( true )
@@ -148,24 +150,38 @@ void dir_monitor_inotify ( char *watch_dir )
 		for ( ssize_t i = 0; i < n_read; i += (EVENT_SIZE + event->len) )
 		{
 			event = (struct inotify_event *) &event_buf[i];
-			if ( (0 != event->len) && !(event->mask & IN_DELETE ) )
+
+			int is_dir = -1;
+			int is_exist = -1;
+			char *event_file_type = NULL;
+			if ( 0 != event->len ) 
 			{
 				sprintf( event_file_path, "%s/%s", watch_dir, event->name );
-				if ( check_file_exist(event_file_path) )
+
+				is_exist = check_file_exist( event_file_path );
+
+				if ( is_exist )
 				{
 					is_dir = check_is_dir( event_file_path );
-					if ( is_dir )
+					if ( 1 == is_dir )
 					{
 						event_file_type = "directory";
 					}
-					else
+					else if ( 0 == is_dir )
 					{
 						event_file_type = "file";
+					}
+					else
+					{
+						// -1
+						// file be delete imediately after check file exist
+						event_file_type = "entry";
 					}
 				}
 				else
 				{
-					printf( "[Warning] query %s stat fail\n", event_file_path );
+					// file be delete imediately after read event
+					event_file_type = "entry";
 				}
 			}
 
@@ -176,7 +192,27 @@ void dir_monitor_inotify ( char *watch_dir )
 					fprintf( stderr, "[Error] event->len=0 when file create in monitored directory\n" );
 					abort();
 				}
-				printf( "[Monitor] in %s: %s %s be create\n", watch_dir, event_file_type, event->name );
+
+				printf( "[Monitor] %s %s be create\n", event_file_type, event_file_path );
+
+				if ( (1 == is_dir) && g_opts.recursive_watch )
+				{
+					pthread_t tid;
+					int status;
+					pthread_attr_t thread_attr;
+					status = pthread_attr_init( &thread_attr );
+					if ( 0 != status )
+					{
+						fprintf( stderr, "[Error] pthread_attr_init fail -> %s\n", strerror(errno) );
+						abort();
+					}
+					status = pthread_create( &tid, &thread_attr, thread_dir_monitor_inotify, event_file_path );
+					if ( 0 != status )
+					{
+						fprintf( stderr, "[Error] pthread_create fail -> %s\n", strerror(errno) );
+						abort();
+					}
+				}
 			}
 			else if ( event->mask & IN_DELETE )
 			{
@@ -185,33 +221,40 @@ void dir_monitor_inotify ( char *watch_dir )
 					fprintf( stderr, "[Error] event->len=0 when file delete in monitored directory\n" );
 					abort();
 				}
-				printf( "[Monitor] in %s: entry %s be delete\n", watch_dir, event->name );
+				printf( "[Monitor] entry %s be delete\n", event_file_path );
 			}
 			else if ( event->mask & IN_OPEN )
 			{
 				if ( 0 == event->len )
 				{
-					printf( "[Monitor] %s be opened\n", watch_dir );
+					printf( "[Monitor] directory %s be opened\n", watch_dir );
 				}
 				else
 				{
-					printf( "[Monitor] in %s: %s %s be opened\n", watch_dir, event_file_type, event->name );
+					printf( "[Monitor] %s %s be opened\n", event_file_type, event_file_path );
 				}
 			}
 			else if ( event->mask & IN_ACCESS )
 			{
 				if ( 0 == event->len )
 				{
-					printf( "[Monitor] %s be accessed\n", watch_dir );
+					printf( "[Monitor] directory %s be accessed\n", watch_dir );
 				}
 				else
 				{
-					printf( "[Monitor] in %s: %s %s be accessed\n", watch_dir, event_file_type, event->name );
+					printf( "[Monitor] %s %s be accessed\n", event_file_type, event_file_path );
 				}
 			}
 			else if ( event->mask & IN_MODIFY )
 			{
-				printf( "[Monitor] in %s: %s %s be modified\n", watch_dir, event_file_type, event->name );
+				if ( 0 == event->len )
+				{
+					printf( "[Monitor] directory %s be modified\n", watch_dir );
+				}
+				else
+				{
+					printf( "[Monitor] %s %s be modified\n", event_file_type, event_file_path );
+				}
 			}
 			else if ( event->mask & IN_DELETE_SELF )
 			{
@@ -232,6 +275,8 @@ void dir_monitor_inotify ( char *watch_dir )
 	}
 
 end_monitor:
+
+	printf( "[Monitor] end of monitor\n" );
 
 	inotify_rm_watch( fd, wd );
 
@@ -295,35 +340,53 @@ void file_monitor_fanotify ( char *file_path )
 
 }
 
-bool check_is_dir ( char *path )
+// =========================================
+// Auxiliary functions
+// =========================================
+ssize_t read_n_byte( int fd, void *buf, int len )
+{
+	ssize_t	n_read = read( fd, buf, len );
+	if ( -1 == n_read )
+	{
+		fprintf( stderr, "[Error] in %s: read fail -> %s\n", __func__, strerror(errno) );
+		abort();
+	}
+	return n_read;
+}
+
+int check_is_dir ( char *path )
 {
 	struct stat st_buf;
 	if ( -1 == stat( path, &st_buf ) )
 	{
 		fprintf( stderr, "[Error] query target %s stat fail --> %s\n", path, strerror(errno) );
-		abort();
+		return -1;
 	}
 	if ( S_ISDIR(st_buf.st_mode) )
 	{
-		return true;
+		return 1;
 	}
 	else
 	{
-		return false;
+		return 0;
 	}
 }
 
-bool check_file_exist ( char *path )
+int check_file_exist ( char *path )
 {
 	struct stat st_buf;
 	if ( -1 == stat( path, &st_buf ) )
 	{
 		if ( ENOENT == errno )
 		{
-			return false;
+			return 0;
+		}
+		else
+		{
+			return -1;
 		}
 	}
 
-	return true;
+	return 1;
 }
 
