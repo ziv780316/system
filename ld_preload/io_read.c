@@ -1,4 +1,5 @@
 #define _GNU_SOURCE
+#include <unistd.h>
 #include <stdio.h>
 #include <string.h>
 #include <errno.h>
@@ -6,7 +7,6 @@
 #include <dlfcn.h>
 #include <stdbool.h>
 #include <sys/types.h>
-#include <unistd.h>
 #include <sys/syscall.h>
 
 #include "misc.h"
@@ -29,7 +29,6 @@ ssize_t read ( int fd, void *buf, size_t n )
 	// show information that monitor file read by which process
 	char pid_info[BUFSIZ];
 	init_pid_info( pid_info );
-	FILE *fout = create_report_file();
 
 	char file_name[BUFSIZ] = {0};
 	char fd_link_path[BUFSIZ] = {0};
@@ -41,18 +40,7 @@ ssize_t read ( int fd, void *buf, size_t n )
 		abort();
 	}
 
-	static int dump_read_data = -1;
-	if ( -1 == dump_read_data )
-	{
-		if ( getenv("LD_PRELOAD_REPORT_DUMP_READ_DATA") )
-		{
-			dump_read_data = true;
-		}
-		else
-		{
-			dump_read_data = false;
-		}
-	}
+	FILE *fout = create_report_file( "read", file_name );
 
 	if ( -1 == status )
 	{
@@ -62,21 +50,27 @@ ssize_t read ( int fd, void *buf, size_t n )
 	{
 		ssize_t n_read = status;
 		fprintf( fout, "[read] process %s read fd=%d file=\"%s\" bytes=%ld status=ok\n", pid_info, fd, file_name, n_read );
-		if ( dump_read_data )
+		if ( 1 )
 		{
-			
-			fprintf( fout, "[read] dump data in ASCII:\n" );
 			for ( ssize_t i = 0; i < n_read; ++i )
 			{
-				if ( ((char *)buf)[i] <= 128 )
+				if ( 1 )
 				{
-					fprintf( fout, "%c", ((char *)buf)[i] );
+					if ( ((char *)buf)[i] <= 128 )
+					{
+						fprintf( fout, "%c", ((char *)buf)[i] );
+					}
+					else
+					{
+						fprintf( fout, "." );
+					}
 				}
-				else
+				else if ( 0 )
 				{
-					fprintf( fout, "." );
+					fprintf( fout, "%02hhx", ((unsigned char *)buf)[i] );
 				}
 			}
+			fflush( fout );
 		}
 	}
 

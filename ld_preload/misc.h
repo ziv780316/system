@@ -4,7 +4,7 @@
 #include <stdio.h>
 
 extern void init_pid_info ( char *pid_info );
-extern FILE *create_report_file ();
+FILE *create_report_file ( char *type, char *event_file );
 
 #endif
 

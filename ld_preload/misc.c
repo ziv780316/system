@@ -26,40 +26,28 @@ void init_pid_info ( char *pid_info )
 
 }
 
-FILE *create_report_file ()
+FILE *create_report_file ( char *type, char *event_file )
 {
 	char report_file[BUFSIZ];
-	static int report_to_log = -1;
-	if ( -1 == report_to_log )
+	char *event_file_name_modify = strdup( event_file );
+	for ( int i = 0; event_file_name_modify[i] != '\0' ; ++i )
 	{
-		if ( getenv("LD_PRELOAD_REPORT_TO_LOG") )
+		if ( ('/' == event_file_name_modify[i]) ||
+		     ('.' == event_file_name_modify[i]) )
 		{
-			report_to_log = true;
-		}
-		else
-		{
-			report_to_log = false;
+			event_file_name_modify[i] = '_';
 		}
 	}
-	if ( report_to_log )
-	{
-		pid_t pid;
-		pid = syscall( SYS_getpid ); 
-		sprintf( report_file, "/tmp/.report.%d", pid );
-	}
-	else
-	{
-		sprintf( report_file, "/dev/tty" );
-	}
+	pid_t pid;
+	pid = syscall( SYS_getpid ); 
+	sprintf( report_file, "%s/%s.report.%d.%s", "/tmp/io_monitor_db", type, pid, event_file_name_modify );
 
 	FILE *fout = fopen( report_file, "a" );
 	if ( !fout )
 	{
-		fprintf( stderr, "[Error] fopen fail in %s error=\"%s\"\n", __func__, strerror(errno) );
+		fprintf( stderr, "[Error] fopen %s fail -> %s\n", report_file, strerror(errno) );
 		abort();
 	}
 
-	setbuf( fout, 0 );
+	return fout;
 }
-
-

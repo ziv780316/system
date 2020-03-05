@@ -1,9 +1,11 @@
 .DEFAULT_GOAL=default 
+.PHONY= gen_lib_hex
 
 CC=gcc
 LIB=-static -lm
 CFLAGS= -O0 -std=c99 -fPIC
-TARGET=test libremove.so libio.so
+TARGET=io_monitor
+IO_MONITOR_OBJ=io_monitor.o opts.o
 
 test: main.c
 	$(CC) main.c $(CFLAGS) -o $@ 
@@ -14,8 +16,15 @@ test: main.c
 libremove.so: remove.o misc.o
 	$(CC) $^ $(CFLAGS) -o $@ -shared -ldl
 
-libio.so: io.c misc.o
+lib%.so : %.c misc.o
 	$(CC) $^ $(CFLAGS) -o $@ -shared -ldl
+
+io_monitor: gen_lib_hex $(IO_MONITOR_OBJ) 
+	$(CC) $(IO_MONITOR_OBJ) $(CFLAGS) -o $@ 
+
+gen_lib_hex: libio_read.so libio_write.so 
+	xxd -i libio_read.so > libio_read.hex
+	xxd -i libio_write.so > libio_write.hex
 
 default: $(TARGET)
 
