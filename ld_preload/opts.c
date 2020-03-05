@@ -198,5 +198,6 @@ void parse_cmd_options ( int argc, char **argv )
 
 	g_monitor.dump_type = g_opts.dump_type;
 	g_monitor.monitor_type = g_opts.monitor_type;
+	g_monitor.debug = g_opts.debug;
 }
 

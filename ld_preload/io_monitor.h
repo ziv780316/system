@@ -2,6 +2,7 @@
 #define IO_H
 
 #include <stdio.h>
+#include <stdbool.h>
 
 typedef enum {
 	MONITOR_NONE,
@@ -18,16 +19,16 @@ typedef enum {
 
 typedef struct
 {
-	char *tmpfile_name;
-	int tmpfile_fd;
+	char *tmpfile_name_read;
+	char *tmpfile_name_write;
+	int tmpfile_fd_read;
+	int tmpfile_fd_write;
 	dump_type_t dump_type;
 	monitor_type_t monitor_type;
+	bool debug;
 } monitor_t;
 
 extern monitor_t g_monitor;
-
-extern void init_pid_info ( char *pid_info );
-extern FILE *create_report_file ();
 
 #endif
 
