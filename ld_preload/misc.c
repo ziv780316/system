@@ -12,6 +12,8 @@
 
 static int g_dump_type = DUMP_NONE;
 static char *g_output_dir = NULL;
+static bool is_init_mutex = false;
+pthread_mutex_t g_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 void __init_pid_info ( char *pid_info )
 {

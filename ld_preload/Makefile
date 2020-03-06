@@ -2,10 +2,13 @@
 .PHONY= gen_lib_hex
 
 CC=gcc
-LIB=-static -lm
-CFLAGS= -g3 -std=c99 -fPIC
+LIB=-static -lm -lpthread
+CFLAGS= -O0 -std=c99 -fPIC
 TARGET=io_monitor
 IO_MONITOR_OBJ=io_monitor.o opts.o
+
+debug: BUILD_TYPE:=-g3 
+debug: default
 
 test: main.c
 	$(CC) main.c $(CFLAGS) -o $@ 
