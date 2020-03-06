@@ -3,7 +3,7 @@
 
 CC=gcc
 LIB=-static -lm
-CFLAGS= -O0 -std=c99 -fPIC
+CFLAGS= -g3 -std=c99 -fPIC
 TARGET=io_monitor
 IO_MONITOR_OBJ=io_monitor.o opts.o
 

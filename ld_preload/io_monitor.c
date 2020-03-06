@@ -22,7 +22,7 @@ monitor_t g_monitor;
 
 void create_tmp_file ( int *tmpfile_fd, char **ptmpfile_name )
 {
-	char *tmpfile_name = (char *) malloc( sizeof(BUFSIZ) );
+	char *tmpfile_name = (char *) calloc( BUFSIZ, sizeof(char) );
 	sprintf( tmpfile_name, "/tmp/.libXXXXXX" );
 	mkstemp( tmpfile_name );
 	if ( NULL == tmpfile_name )
@@ -30,16 +30,17 @@ void create_tmp_file ( int *tmpfile_fd, char **ptmpfile_name )
 		fprintf( stderr, "[error] create tmpfile name fail -> %s\n", strerror(errno) );
 		abort();
 	}
-	sprintf( tmpfile_name, "%s.so", tmpfile_name );
+	char so_name[BUFSIZ];
+	sprintf( so_name, "%s.so", tmpfile_name );
 
-	int fd = open( tmpfile_name, O_CREAT | O_WRONLY | O_TRUNC, S_IRWXU );
+	int fd = open( so_name, O_CREAT | O_WRONLY | O_TRUNC, S_IRWXU );
 	if ( -1 == fd )
 	{
-		fprintf( stderr, "[error] create tmpfile %s fail -> %s\n", tmpfile_name, strerror(errno) );
+		fprintf( stderr, "[error] create tmpfile %s fail -> %s\n", so_name, strerror(errno) );
 		abort();
 	}
 
-	*ptmpfile_name = strdup( tmpfile_name );
+	*ptmpfile_name = strdup( so_name );
 	*tmpfile_fd = fd;
 }
 

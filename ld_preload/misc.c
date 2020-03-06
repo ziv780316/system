@@ -120,15 +120,30 @@ void __dump_data_to_report ( FILE *fout, const void *buf, size_t n_bytes )
 
 char *__get_proc_fd_name ( pid_t pid, int fd )
 {
-	char file_name[BUFSIZ] = {0};
-	char fd_link_path[BUFSIZ] = {0};
-	sprintf( fd_link_path, "/proc/%d/fd/%d", pid, fd );
-	if ( -1 == readlink( fd_link_path, file_name, BUFSIZ ) )
+	if ( 0 == fd )
 	{
-		fprintf( stderr, "[Error] readlink %s fail in %s\n", fd_link_path, __func__ );
-		abort();
+		return strdup( "stdin" );
 	}
-	return strdup( file_name );
+	else if ( 1 == fd )
+	{
+		return strdup( "stdout" );
+	}
+	else if ( 2 == fd )
+	{
+		return strdup( "stderr" );
+	}
+	else
+	{
+		char file_name[BUFSIZ] = {0};
+		char fd_link_path[BUFSIZ] = {0};
+		sprintf( fd_link_path, "/proc/%d/fd/%d", pid, fd );
+		if ( -1 == readlink( fd_link_path, file_name, BUFSIZ ) )
+		{
+			fprintf( stderr, "[Error] readlink %s fail in %s\n", fd_link_path, __func__ );
+			abort();
+		}
+		return strdup( file_name );
+	}
 }
 
 char *__get_proc_exec_name ( pid_t pid )
@@ -142,8 +157,32 @@ char *__get_proc_exec_name ( pid_t pid )
 		fprintf( stderr, "[Error] open %s fail in %s\n", exec_link_path, __func__ );
 		abort();
 	}
-	char cmd_buf[BUFSIZ];
+	char cmd_buf[BUFSIZ] = {0};
 	fgets( cmd_buf, BUFSIZ, fin );
 
-	return strdup( cmd_buf );
+	char exec[BUFSIZ];
+	char *pos = cmd_buf;
+	sscanf( cmd_buf, "%s", exec );
+	if ( (0 == strcmp("sh", exec )) || (0 == strcmp("csh", exec)) )
+	{
+		// command is -> sh -c program
+		char arg[BUFSIZ];
+		strcpy( arg, cmd_buf );
+		while ( true )
+		{
+			pos += strlen(arg) + 1;
+			sprintf( arg, "%s", pos );
+			if ( '\0' == *arg ) 
+			{
+				break;
+			}
+			else if ( '-' != *arg ) 
+			{
+				sscanf( arg, "%s", exec ); // ignore ' '
+				break;
+			}
+		}
+	}
+
+	return strdup( exec );
 }
