@@ -78,18 +78,24 @@ void __init_monitor ()
 		env = getenv( "IO_MONITOR_DUMP_TYPE" );
 		if ( !env )
 		{
-			fprintf( stderr, "[Error] getenv IO_MONITOR_DUMP_TYPE fail\n" );
-			abort();
+			fprintf( stderr, "[Warning] getenv IO_MONITOR_DUMP_TYPE fail, use type ascii\n" );
+			g_dump_type = DUMP_ASCII;
 		}
-		g_dump_type = atoi( env );
+		else
+		{
+			g_dump_type = atoi( env );
+		}
 
 		env = getenv( "IO_MONITOR_REPORT_DIR" );
 		if ( !env )
 		{
-			fprintf( stderr, "[Error] getenv IO_MONITOR_DUMP_TYPE fail\n" );
-			abort();
+			fprintf( stderr, "[Error] getenv IO_MONITOR_DUMP_TYPE fail, use /tmp\n" );
+			g_output_dir = strdup( "/tmp" );
 		}
-		g_output_dir = strdup( env );
+		else
+		{
+			g_output_dir = strdup( env );
+		}
 
 		initialized = true;
 	}

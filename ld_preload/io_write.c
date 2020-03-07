@@ -18,17 +18,8 @@ ssize_t write ( int fd, const void *buf, size_t n )
 	// get information from monitor 
 	__init_monitor();
 
-	// link symbol occur in next library (i.e. origin remove in libc.so)
-	ssize_t (*libc_write) (int, const void *, size_t) = (ssize_t (*) (int, const void *, size_t)) dlsym( RTLD_NEXT, "write" );
-	if ( NULL == libc_write )
-	{
-		fprintf( stderr, "[Error] RTLD link function %s fail\n", __func__ );
-		abort();
-	}
-
-	// call origin write in libc.so
 	ssize_t status;	
-	status = libc_write( fd, buf, n );
+	status = syscall( SYS_write, fd, buf, n );
 	int errno_store = errno;	
 
 	// show information that monitor file write by which process

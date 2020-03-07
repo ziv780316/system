@@ -18,17 +18,8 @@ ssize_t read ( int fd, void *buf, size_t n )
 	// get information from monitor 
 	__init_monitor();
 
-	// link symbol occur in next library (i.e. origin remove in libc.so)
-	ssize_t (*libc_read) (int, void *, size_t) = (ssize_t (*) (int, void *, size_t)) dlsym( RTLD_NEXT, "read" );
-	if ( NULL == libc_read )
-	{
-		fprintf( stderr, "[Error] RTLD link function %s fail\n", __func__ );
-		abort();
-	}
-
-	// call origin read in libc.so
 	ssize_t status;	
-	status = libc_read( fd, buf, n );
+	status = syscall( SYS_read, fd, buf, n );
 	int errno_store = errno;	
 
 	// show information that monitor file read by which process
