@@ -191,6 +191,7 @@ char *__get_proc_exec_name ( pid_t pid )
 			}
 		}
 	}
+	fclose( fin );
 
 	return strdup( exec );
 }
