@@ -1,11 +1,12 @@
 .DEFAULT_GOAL=default 
-.PHONY= gen_lib_hex
+.PHONY=gen_lib_hex
 
 CC=gcc
 LIB=-static -lm -lpthread
-CFLAGS= -O0 -std=c99 -fPIC
+CFLAGS= -O0 -g -std=c99 -fPIC
 TARGET=io_monitor
 IO_MONITOR_OBJ=io_monitor.o opts.o
+IO_MONITOR_LIB=libio_read.so libio_write.so libio_both.so
 
 debug: BUILD_TYPE:=-g3 
 debug: default
@@ -19,15 +20,19 @@ test: main.c
 libremove.so: remove.o misc.o
 	$(CC) $^ $(CFLAGS) -o $@ -shared -ldl
 
-lib%.so : %.c misc.o
+libio_both.so: libio_read.so libio_write.so misc.o io_both.o 
+	$(CC) io_both.o misc.o $(CFLAGS) -o $@ -shared -ldl
+	xxd -i $@ > $(@:.so=.hex)
+
+lib%.so : %.o misc.o
 	$(CC) $^ $(CFLAGS) -o $@ -shared -ldl
+	xxd -i $@ > $(@:.so=.hex)
 
-io_monitor: gen_lib_hex $(IO_MONITOR_OBJ) 
+io_monitor.o: $(IO_MONITOR_LIB) io_monitor.c 
+	$(CC) -c $(@:.o=.c) $(CFLAGS) -o $@ 
+
+io_monitor: $(IO_MONITOR_OBJ) 
 	$(CC) $(IO_MONITOR_OBJ) $(CFLAGS) -o $@ 
-
-gen_lib_hex: libio_read.so libio_write.so 
-	xxd -i libio_read.so > libio_read.hex
-	xxd -i libio_write.so > libio_write.hex
 
 default: $(TARGET)
 

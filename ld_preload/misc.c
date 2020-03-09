@@ -6,14 +6,23 @@
 #include <sys/types.h>
 #include <unistd.h>
 #include <sys/syscall.h>
+#include <dlfcn.h>
+#include <signal.h>
 
 #include "io_monitor.h"
 #include "misc.h"
 
 static int g_dump_type = DUMP_NONE;
 static char *g_output_dir = NULL;
-static bool is_init_mutex = false;
-pthread_mutex_t g_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+pthread_mutex_t g_mutex_read = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t g_mutex_write = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t g_mutex_fflush = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t g_mutex_fputc = PTHREAD_MUTEX_INITIALIZER;
+
+int (*libc_fflush) (FILE *) = NULL;
+int (*libc_fputc) (int, FILE *) = NULL;
+int (*libc_fprintf) (FILE *, const char*, ...) = NULL;
 
 void __init_pid_info ( char *pid_info )
 {
@@ -62,8 +71,8 @@ FILE *__create_report_file ( char *type, char *exec, char *event_file )
 	FILE *fout = fopen( report_file, "a" );
 	if ( !fout )
 	{
-		fprintf( stderr, "[Error] fopen %s fail -> %s\n", report_file, strerror(errno) );
-		abort();
+		libc_fprintf( stderr, "[Error] fopen %s fail in %s -> %s\n", report_file, __func__, strerror(errno) );
+		//abort();
 	}
 
 	return fout;
@@ -74,11 +83,34 @@ void __init_monitor ()
 	static bool initialized = false;
 	if ( !initialized )
 	{
+		// bind origin libc function
+		libc_fprintf = (int (*) (FILE *, const char *, ...)) dlsym( RTLD_NEXT, "fprintf" );
+		if ( NULL == libc_fprintf )
+		{
+			libc_fprintf( stderr, "[Error] RTLD link function fprintf fail -> %s\n", dlerror() );
+			abort();
+		}
+
+		libc_fflush = (int (*) (FILE *)) dlsym( RTLD_NEXT, "fflush" );
+		if ( NULL == libc_fflush )
+		{
+			libc_fprintf( stderr, "[Error] RTLD link function fflush fail\n" );
+			abort();
+		}
+
+		libc_fputc = (int (*) (int, FILE *)) dlsym( RTLD_NEXT, "fputc" );
+		if ( NULL == libc_fputc )
+		{
+			libc_fprintf( stderr, "[Error] RTLD link function fputc fail -> %s\n", dlerror() );
+			abort();
+		}
+
+		// get io_monitor spec
 		char *env;
 		env = getenv( "IO_MONITOR_DUMP_TYPE" );
 		if ( !env )
 		{
-			fprintf( stderr, "[Warning] getenv IO_MONITOR_DUMP_TYPE fail, use type ascii\n" );
+			libc_fprintf( stderr, "[Warning] getenv IO_MONITOR_DUMP_TYPE fail, use type ascii\n" );
 			g_dump_type = DUMP_ASCII;
 		}
 		else
@@ -89,7 +121,7 @@ void __init_monitor ()
 		env = getenv( "IO_MONITOR_REPORT_DIR" );
 		if ( !env )
 		{
-			fprintf( stderr, "[Error] getenv IO_MONITOR_DUMP_TYPE fail, use /tmp\n" );
+			libc_fprintf( stderr, "[Error] getenv IO_MONITOR_DUMP_TYPE fail, use /tmp\n" );
 			g_output_dir = strdup( "/tmp" );
 		}
 		else
@@ -111,16 +143,16 @@ void __dump_data_to_report ( FILE *fout, const void *buf, size_t n_bytes )
 			{
 				if ( ((char *)buf)[i] <= 128 )
 				{
-					fprintf( fout, "%c", ((char *)buf)[i] );
+					libc_fprintf( fout, "%c", ((char *)buf)[i] );
 				}
 				else
 				{
-					fprintf( fout, "." );
+					libc_fprintf( fout, "." );
 				}
 			}
 			else if ( DUMP_HEX == g_dump_type )
 			{
-				fprintf( fout, "%02hhx", ((unsigned char *)buf)[i] );
+				libc_fprintf( fout, "%02hhx", ((unsigned char *)buf)[i] );
 			}
 		}
 	}
@@ -147,7 +179,7 @@ char *__get_proc_fd_name ( pid_t pid, int fd )
 		sprintf( fd_link_path, "/proc/%d/fd/%d", pid, fd );
 		if ( -1 == readlink( fd_link_path, file_name, BUFSIZ ) )
 		{
-			fprintf( stderr, "[Error] readlink %s fail in %s\n", fd_link_path, __func__ );
+			libc_fprintf( stderr, "[Error] readlink %s fail in %s\n", fd_link_path, __func__ );
 			abort();
 		}
 		return strdup( file_name );
@@ -162,7 +194,7 @@ char *__get_proc_exec_name ( pid_t pid )
 	FILE *fin = fopen( exec_link_path, "r" );
 	if ( !fin )
 	{
-		fprintf( stderr, "[Error] open %s fail in %s\n", exec_link_path, __func__ );
+		libc_fprintf( stderr, "[Error] open %s fail in %s\n", exec_link_path, __func__ );
 		abort();
 	}
 	char cmd_buf[BUFSIZ] = {0};

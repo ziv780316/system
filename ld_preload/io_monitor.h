@@ -19,10 +19,8 @@ typedef enum {
 
 typedef struct
 {
-	char *tmpfile_name_read;
-	char *tmpfile_name_write;
-	int tmpfile_fd_read;
-	int tmpfile_fd_write;
+	char *tmpfile_name;
+	int tmpfile_fd;
 	dump_type_t dump_type;
 	monitor_type_t monitor_type;
 	bool debug;

@@ -13,7 +13,7 @@
 
 ssize_t read ( int fd, void *buf, size_t n )
 {
-	pthread_mutex_lock( &g_mutex );
+	pthread_mutex_lock( &g_mutex_read );
 
 	// get information from monitor 
 	__init_monitor();
@@ -31,24 +31,27 @@ ssize_t read ( int fd, void *buf, size_t n )
 	char *exec_name = __get_proc_exec_name( pid );
 	FILE *fout = __create_report_file( "read", exec_name, file_name );
 
-	if ( -1 == status )
+	if ( fout )
 	{
-		fprintf( fout, "[read] process=%s exec=%s read fd=%d file=\"%s\" status=fail error=\"%s\"\n", pid_info, exec_name, fd, file_name, strerror(errno_store) );
-	}
-	else
-	{
-		ssize_t n_read = status;
-		fprintf( fout, "[read] process=%s exec=%s read fd=%d file=\"%s\" bytes=%ld status=ok\n", pid_info, exec_name, fd, file_name, n_read );
-		if ( n_read > 0 )
+		if ( -1 == status )
 		{
-			// non EOF
-			__dump_data_to_report ( fout, buf, n_read );
+			fprintf( fout, "[read] process=%s exec=%s read fd=%d file=\"%s\" status=fail error=\"%s\"\n", pid_info, exec_name, fd, file_name, strerror(errno_store) );
 		}
-	}
-	
-	fclose( fout );
+		else
+		{
+			ssize_t n_read = status;
+			fprintf( fout, "[read] process=%s exec=%s read fd=%d file=\"%s\" bytes=%ld status=ok\n", pid_info, exec_name, fd, file_name, n_read );
+			if ( n_read > 0 )
+			{
+				// non EOF
+				__dump_data_to_report ( fout, buf, n_read );
+			}
+		}
 
-	pthread_mutex_unlock( &g_mutex );
+		fclose( fout );
+	}
+
+	pthread_mutex_unlock( &g_mutex_read );
 
 	return status;
 }
