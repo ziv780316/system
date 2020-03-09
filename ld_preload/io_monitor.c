@@ -67,7 +67,7 @@ static void sigsegv_backtrace ( int signum )
 void resolve_path_name ( char **path )
 {
 	// change to abs path
-	char *resolved_path;
+	char *resolved_path = NULL;
 	char *buf = realpath( *path, resolved_path );
 	if ( NULL == resolved_path )
 	{
