@@ -24,7 +24,6 @@
 
 monitor_t g_monitor;
 
-
 static sighandler_t register_signal_handler ( int signum, void (*fp) (int) )
 {
 	struct sigaction new_action, old_action;
@@ -63,6 +62,32 @@ static void sigsegv_backtrace ( int signum )
 
 	free( strings );
 	exit( 1 );
+}
+
+void resolve_path_name ( char **path )
+{
+	// change to abs path
+	char *resolved_path;
+	char *buf = realpath( *path, resolved_path );
+	if ( NULL == resolved_path )
+	{
+		if ( NULL == buf )
+		{
+			fprintf( stderr, "[Error] cannot resolve path %s -> %s\n", *path, strerror(errno) );
+			abort();
+		}
+		else
+		{
+			// resolved path length > PATH_MAX
+			*path = buf;
+		}
+	}
+	else
+	{
+		free( *path );
+		*path = strdup( resolved_path );
+	}
+
 }
 
 void create_tmp_file ( int *tmpfile_fd, char **ptmpfile_name )
@@ -179,6 +204,9 @@ int main ( int argc, char **argv )
 
 		// create directory to collect report
 		create_dir( g_opts.output_dir );
+
+		// resolve path name
+		resolve_path_name( &g_opts.output_dir );
 
 		printf( "* Monitor information:\n" );
 		printf( "libc version = %s\n", gnu_get_libc_version() );

@@ -72,7 +72,7 @@ FILE *__create_report_file ( char *type, char *exec, char *event_file )
 	if ( !fout )
 	{
 		libc_fprintf( stderr, "[Error] fopen %s fail in %s -> %s\n", report_file, __func__, strerror(errno) );
-		//abort();
+		abort();
 	}
 
 	return fout;
@@ -226,4 +226,23 @@ char *__get_proc_exec_name ( pid_t pid )
 	fclose( fin );
 
 	return strdup( exec );
+}
+
+
+void __print_backtrace ()
+{
+#define MAX_BACKTRACE_DEPTH 100
+	void *buffer[MAX_BACKTRACE_DEPTH];
+	int nptrs = backtrace( buffer, MAX_BACKTRACE_DEPTH );
+	char **strings = backtrace_symbols( buffer, nptrs );
+	if ( !strings )
+	{
+		libc_fprintf( stderr, "[Error] backtrace fail -> %s\n", strerror(errno) );
+	}
+	for ( int i = 0; i < nptrs; ++i )
+	{
+		libc_fprintf( stderr, "%s\n", strings[i] );
+	}
+
+	free( strings );
 }

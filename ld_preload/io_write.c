@@ -71,6 +71,13 @@ int fflush ( FILE *stream )
 	__init_pid_info( pid_info );
 
 	int fd = fileno( stream );
+
+	if ( -1 == fd )
+	{
+		libc_fprintf( stderr, "[Error] fileno %s fail in %s -> %s\n", __func__, strerror(errno) );
+		return status;
+	}
+
 	pid_t pid = syscall( SYS_getpid ); 
 	char *file_name = __get_proc_fd_name( pid, fd );
 	char *exec_name = __get_proc_exec_name( pid );
@@ -115,6 +122,14 @@ int fputc ( int c, FILE *stream )
 	__init_pid_info( pid_info );
 
 	int fd = fileno( stream );
+
+	if ( -1 == fd )
+	{
+		libc_fprintf( stderr, "[Error] fileno %s fail in %s -> %s\n", __func__, strerror(errno) );
+		__print_backtrace();
+		return status;
+	}
+
 	pid_t pid = syscall( SYS_getpid ); 
 	char *file_name = __get_proc_fd_name( pid, fd );
 	char *exec_name = __get_proc_exec_name( pid );
