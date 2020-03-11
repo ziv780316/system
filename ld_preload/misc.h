@@ -13,13 +13,10 @@ extern char *__get_proc_fd_name ( pid_t pid, int fd );
 extern char *__get_proc_exec_name ( pid_t pid );
 extern void __print_backtrace ();
 
-extern pthread_mutex_t g_mutex_read;
-extern pthread_mutex_t g_mutex_write;
-extern pthread_mutex_t g_mutex_fflush;
-extern pthread_mutex_t g_mutex_fputc;
-
 extern int (*libc_fflush) (FILE *);
 extern int (*libc_fputc) (int, FILE *);
+extern int (*libc_printf) (const char*, ...);
+extern int (*libc_sprintf) (char *buf, const char*, ...);
 extern int (*libc_fprintf) (FILE *, const char*, ...);
 
 

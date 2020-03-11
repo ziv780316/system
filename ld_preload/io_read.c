@@ -13,8 +13,6 @@
 
 ssize_t read ( int fd, void *buf, size_t n )
 {
-	pthread_mutex_lock( &g_mutex_read );
-
 	// get information from monitor 
 	__init_monitor();
 
@@ -50,8 +48,6 @@ ssize_t read ( int fd, void *buf, size_t n )
 
 		fclose( fout );
 	}
-
-	pthread_mutex_unlock( &g_mutex_read );
 
 	return status;
 }

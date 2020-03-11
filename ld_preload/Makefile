@@ -14,7 +14,7 @@ debug: default
 test: main.c
 	$(CC) main.c $(CFLAGS) -o $@ 
 
-%.o: %.c
+%.o: %.c %.h
 	$(CC) -c $< $(CFLAGS) -o $@ 
 
 libremove.so: remove.o misc.o

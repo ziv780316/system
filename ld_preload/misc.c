@@ -8,6 +8,7 @@
 #include <sys/syscall.h>
 #include <dlfcn.h>
 #include <signal.h>
+#include <execinfo.h>
 
 #include "io_monitor.h"
 #include "misc.h"
@@ -15,14 +16,32 @@
 static int g_dump_type = DUMP_NONE;
 static char *g_output_dir = NULL;
 
-pthread_mutex_t g_mutex_read = PTHREAD_MUTEX_INITIALIZER;
-pthread_mutex_t g_mutex_write = PTHREAD_MUTEX_INITIALIZER;
-pthread_mutex_t g_mutex_fflush = PTHREAD_MUTEX_INITIALIZER;
-pthread_mutex_t g_mutex_fputc = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t g_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 int (*libc_fflush) (FILE *) = NULL;
 int (*libc_fputc) (int, FILE *) = NULL;
+int (*libc_printf) (const char*, ...) = NULL;
 int (*libc_fprintf) (FILE *, const char*, ...) = NULL;
+int (*libc_sprintf) (char *, const char*, ...) = NULL;
+
+static sighandler_t register_signal_handler ( int signum, void (*fp) (int) )
+{
+	if ( SIG_ERR == signal( signum, fp ) )
+	{
+		libc_fprintf( stderr, "[Error] register signal fail -> %s\n", strerror(errno) );
+		abort();
+	}
+}
+
+static void sigsegv_backtrace ( int signum )
+{
+	pid_t tid = syscall( SYS_gettid ); 
+	libc_fprintf( stderr, "[Warning] pid=%d get SIGSEGV\n", tid );
+
+	__print_backtrace();
+	signal( SIGSEGV, SIG_DFL );
+	raise( SIGSEGV );
+}
 
 void __init_pid_info ( char *pid_info )
 {
@@ -32,11 +51,11 @@ void __init_pid_info ( char *pid_info )
 	pid = syscall( SYS_getpid ); 
 	if ( pid == tid )
 	{
-		sprintf( pid_info, "PID=%d", pid );
+		libc_sprintf( pid_info, "PID=%d", pid );
 	}
 	else
 	{
-		sprintf( pid_info, "PID=%d TID=%d", pid, tid );
+		libc_sprintf( pid_info, "PID=%d TID=%d", pid, tid );
 	}
 
 }
@@ -64,9 +83,9 @@ FILE *__create_report_file ( char *type, char *exec, char *event_file )
 	}
 
 	pid_t pid;
-	pid = syscall( SYS_getpid ); 
+	pid = syscall( SYS_gettid ); // unique in multi-threading
 	char report_file[BUFSIZ];
-	sprintf( report_file, "%s/%s.report.%d.%s.%s", g_output_dir, type, pid, exec_name_modify, event_file_name_modify );
+	libc_sprintf( report_file, "%s/%s.report.%d.%s.%s", g_output_dir, type, pid, exec_name_modify, event_file_name_modify );
 
 	FILE *fout = fopen( report_file, "a" );
 	if ( !fout )
@@ -80,6 +99,8 @@ FILE *__create_report_file ( char *type, char *exec, char *event_file )
 
 void __init_monitor ()
 {
+	pthread_mutex_lock( &g_mutex );
+
 	static bool initialized = false;
 	if ( !initialized )
 	{
@@ -88,6 +109,20 @@ void __init_monitor ()
 		if ( NULL == libc_fprintf )
 		{
 			libc_fprintf( stderr, "[Error] RTLD link function fprintf fail -> %s\n", dlerror() );
+			abort();
+		}
+
+		libc_printf = (int (*) (const char *, ...)) dlsym( RTLD_NEXT, "printf" );
+		if ( NULL == libc_printf )
+		{
+			libc_fprintf( stderr, "[Error] RTLD link function printf fail -> %s\n", dlerror() );
+			abort();
+		}
+
+		libc_sprintf = (int (*) (char *, const char *, ...)) dlsym( RTLD_NEXT, "sprintf" );
+		if ( NULL == libc_sprintf )
+		{
+			libc_fprintf( stderr, "[Error] RTLD link function sprintf fail -> %s\n", dlerror() );
 			abort();
 		}
 
@@ -129,8 +164,13 @@ void __init_monitor ()
 			g_output_dir = strdup( env );
 		}
 
+		// register signal 
+		register_signal_handler( SIGSEGV, sigsegv_backtrace );
+
 		initialized = true;
 	}
+
+	pthread_mutex_unlock( &g_mutex );
 }
 
 void __dump_data_to_report ( FILE *fout, const void *buf, size_t n_bytes )
@@ -176,7 +216,7 @@ char *__get_proc_fd_name ( pid_t pid, int fd )
 	{
 		char file_name[BUFSIZ] = {0};
 		char fd_link_path[BUFSIZ] = {0};
-		sprintf( fd_link_path, "/proc/%d/fd/%d", pid, fd );
+		libc_sprintf( fd_link_path, "/proc/%d/fd/%d", pid, fd );
 		if ( -1 == readlink( fd_link_path, file_name, BUFSIZ ) )
 		{
 			libc_fprintf( stderr, "[Error] readlink %s fail in %s\n", fd_link_path, __func__ );
@@ -190,7 +230,7 @@ char *__get_proc_exec_name ( pid_t pid )
 {
 	char exec_name[BUFSIZ] = {0};
 	char exec_link_path[BUFSIZ] = {0};
-	sprintf( exec_link_path, "/proc/%d/cmdline", pid );
+	libc_sprintf( exec_link_path, "/proc/%d/cmdline", pid );
 	FILE *fin = fopen( exec_link_path, "r" );
 	if ( !fin )
 	{
@@ -211,7 +251,7 @@ char *__get_proc_exec_name ( pid_t pid )
 		while ( true )
 		{
 			pos += strlen(arg) + 1;
-			sprintf( arg, "%s", pos );
+			libc_sprintf( arg, "%s", pos );
 			if ( '\0' == *arg ) 
 			{
 				break;

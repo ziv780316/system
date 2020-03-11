@@ -8,13 +8,12 @@
 #include <sys/types.h>
 #include <sys/syscall.h>
 #include <dlfcn.h>
+#include <stdarg.h>
 
 #include "misc.h"
 
 ssize_t write ( int fd, const void *buf, size_t n )
 {
-	pthread_mutex_lock( &g_mutex_write );
-
 	// get information from monitor 
 	__init_monitor();
 
@@ -48,15 +47,12 @@ ssize_t write ( int fd, const void *buf, size_t n )
 	
 	fclose( fout );
 
-	pthread_mutex_unlock( &g_mutex_write );
 
 	return status;
 }
 
 int fflush ( FILE *stream )
 {
-	pthread_mutex_lock( &g_mutex_fflush );
-
 	// get information from monitor 
 	__init_monitor();
 
@@ -102,15 +98,12 @@ int fflush ( FILE *stream )
 		fclose( fout );
 	}
 
-	pthread_mutex_unlock( &g_mutex_fflush );
 
 	return status;
 }
 
 int fputc ( int c, FILE *stream )
 {
-	pthread_mutex_lock( &g_mutex_fputc ); 
-
 	// get information from monitor 
 	__init_monitor();
 
@@ -135,10 +128,146 @@ int fputc ( int c, FILE *stream )
 	char *exec_name = __get_proc_exec_name( pid );
 	FILE *fout = __create_report_file( "fputc", exec_name, file_name );
 
-	__dump_data_to_report ( fout, (void *)&c, 1 );
+	if ( fout )
+	{
+		if ( EOF == status )
+		{
+			// error
+		}
+		else
+		{
+			libc_fputc( c, fout );
+		}
+	}
+
 	fclose( fout );
 
-	pthread_mutex_unlock( &g_mutex_fputc );
+	return status;
+}
+
+int printf ( const char *fmt, ... )
+{
+	// get information from monitor 
+	__init_monitor();
+
+	va_list va;
+	va_start( va, fmt );
+
+	int status = libc_printf( fmt, va );
+	int errno_store = errno;	
+
+	// show information that monitor file write by which process
+	char pid_info[BUFSIZ];
+	__init_pid_info( pid_info );
+
+	int fd = fileno( stdout );
+
+	if ( -1 == fd )
+	{
+		libc_fprintf( stderr, "[Error] fileno %s fail in %s -> %s\n", __func__, strerror(errno) );
+		__print_backtrace();
+		return status;
+	}
+
+	pid_t pid = syscall( SYS_getpid ); 
+	char *file_name = __get_proc_fd_name( pid, fd );
+	char *exec_name = __get_proc_exec_name( pid );
+	FILE *fout = __create_report_file( "printf", exec_name, file_name );
+
+	if ( fout )
+	{
+		if ( status < 0 )
+		{
+			// error
+		}
+		else
+		{
+			libc_fprintf( fout, fmt, va );
+		}
+	}
+
+	fclose( fout );
+
+	return status;
+}
+
+int fprintf ( FILE *stream, const char *fmt, ... )
+{
+	// get information from monitor 
+	__init_monitor();
+
+	va_list va;
+	va_start( va, fmt );
+
+	int status = libc_fprintf( stream, fmt, va );
+	int errno_store = errno;	
+
+	// show information that monitor file write by which process
+	char pid_info[BUFSIZ];
+	__init_pid_info( pid_info );
+
+	int fd = fileno( stream );
+
+	if ( -1 == fd )
+	{
+		libc_fprintf( stderr, "[Error] fileno %s fail in %s -> %s\n", __func__, strerror(errno) );
+		__print_backtrace();
+		return status;
+	}
+
+	pid_t pid = syscall( SYS_getpid ); 
+	char *file_name = __get_proc_fd_name( pid, fd );
+	char *exec_name = __get_proc_exec_name( pid );
+	FILE *fout = __create_report_file( "fprintf", exec_name, file_name );
+
+	if ( fout )
+	{
+		if ( status < 0 )
+		{
+			// error
+		}
+		else
+		{
+			libc_fprintf( fout, fmt, va );
+		}
+	}
+
+	fclose( fout );
+
+	return status;
+}
+
+int sprintf ( char *buf, const char *fmt, ... )
+{
+	// get information from monitor 
+	__init_monitor();
+
+	va_list va;
+	va_start( va, fmt );
+
+	int status = libc_sprintf( buf, fmt, va );
+	int errno_store = errno;	
+
+	// show information that monitor file write by which process
+	char pid_info[BUFSIZ];
+	__init_pid_info( pid_info );
+	pid_t pid = syscall( SYS_getpid ); 
+	char *exec_name = __get_proc_exec_name( pid );
+	FILE *fout = __create_report_file( "sprintf", exec_name, "buf" );
+
+	if ( fout )
+	{
+		if ( status < 0 )
+		{
+			// error
+		}
+		else
+		{
+			libc_fprintf( fout, fmt, va );
+		}
+	}
+
+	fclose( fout );
 
 	return status;
 }

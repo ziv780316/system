@@ -44,8 +44,7 @@ static sighandler_t register_signal_handler ( int signum, void (*fp) (int) )
 
 static void sigsegv_backtrace ( int signum )
 {
-	pid_t tid = syscall( SYS_gettid ); 
-	fprintf( stderr, "[Warning] pid=%d get SIGSEGV\n", tid );
+	fprintf( stderr, "[Warning] io_monitor get SIGSEGV\n" );
 
 #define MAX_BACKTRACE_DEPTH 100
 	void *buffer[MAX_BACKTRACE_DEPTH];
