@@ -23,9 +23,6 @@ int (*libc_fputc) (int, FILE *) = NULL;
 int (*libc_printf) (const char*, ...) = NULL;
 int (*libc_fprintf) (FILE *, const char*, ...) = NULL;
 int (*libc_sprintf) (char *, const char*, ...) = NULL;
-int (*libc_vprintf) (const char*, va_list) = NULL;
-int (*libc_vsprintf) (char *, const char*, va_list) = NULL;
-int (*libc_vfprintf) (FILE *, const char*, va_list) = NULL;
 
 static sighandler_t register_signal_handler ( int signum, void (*fp) (int) )
 {
@@ -44,16 +41,6 @@ static void sigsegv_backtrace ( int signum )
 	__print_backtrace();
 	signal( SIGSEGV, SIG_DFL );
 	raise( SIGSEGV );
-}
-
-static void *dlsym_rtld_next ( char *name )
-{
-	void *fp = dlsym( RTLD_NEXT, name );
-	if ( NULL == fp )
-	{
-		libc_fprintf( stderr, "[Error] RTLD link function %s fail -> %s\n", name, dlerror() );
-		abort();
-	}
 }
 
 void __init_pid_info ( char *pid_info )
@@ -104,7 +91,7 @@ FILE *__create_report_file ( char *type, char *exec, char *event_file )
 	if ( !fout )
 	{
 		libc_fprintf( stderr, "[Error] fopen %s fail in %s -> %s\n", report_file, __func__, strerror(errno) );
-		__print_backtrace();
+		abort();
 	}
 
 	return fout;
@@ -118,14 +105,40 @@ void __init_monitor ()
 	if ( !initialized )
 	{
 		// bind origin libc function
-		libc_fprintf = (int (*) (FILE *, const char *, ...)) dlsym_rtld_next( "fprintf" );
-		libc_printf = (int (*) (const char *, ...)) dlsym_rtld_next( "printf" );
-		libc_sprintf = (int (*) (char *, const char *, ...)) dlsym_rtld_next( "sprintf" );
-		libc_vfprintf = (int (*) (FILE *, const char *, va_list)) dlsym_rtld_next( "vfprintf" );
-		libc_vprintf = (int (*) (const char *, va_list)) dlsym_rtld_next( "vprintf" );
-		libc_vsprintf = (int (*) (char *, const char *, va_list)) dlsym_rtld_next( "vsprintf" );
-		libc_fflush = (int (*) (FILE *)) dlsym_rtld_next( "fflush" );
-		libc_fputc = (int (*) (int, FILE *)) dlsym_rtld_next( "fputc" );
+		libc_fprintf = (int (*) (FILE *, const char *, ...)) dlsym( RTLD_NEXT, "fprintf" );
+		if ( NULL == libc_fprintf )
+		{
+			libc_fprintf( stderr, "[Error] RTLD link function fprintf fail -> %s\n", dlerror() );
+			abort();
+		}
+
+		libc_printf = (int (*) (const char *, ...)) dlsym( RTLD_NEXT, "printf" );
+		if ( NULL == libc_printf )
+		{
+			libc_fprintf( stderr, "[Error] RTLD link function printf fail -> %s\n", dlerror() );
+			abort();
+		}
+
+		libc_sprintf = (int (*) (char *, const char *, ...)) dlsym( RTLD_NEXT, "sprintf" );
+		if ( NULL == libc_sprintf )
+		{
+			libc_fprintf( stderr, "[Error] RTLD link function sprintf fail -> %s\n", dlerror() );
+			abort();
+		}
+
+		libc_fflush = (int (*) (FILE *)) dlsym( RTLD_NEXT, "fflush" );
+		if ( NULL == libc_fflush )
+		{
+			libc_fprintf( stderr, "[Error] RTLD link function fflush fail\n" );
+			abort();
+		}
+
+		libc_fputc = (int (*) (int, FILE *)) dlsym( RTLD_NEXT, "fputc" );
+		if ( NULL == libc_fputc )
+		{
+			libc_fprintf( stderr, "[Error] RTLD link function fputc fail -> %s\n", dlerror() );
+			abort();
+		}
 
 		// get io_monitor spec
 		char *env;

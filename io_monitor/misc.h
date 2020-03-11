@@ -1,7 +1,6 @@
 #ifndef MISC_H
 #define MISC_H
 
-#include <stdarg.h>
 #include <stdio.h>
 #include <sys/types.h>
 #include <pthread.h>
@@ -17,11 +16,8 @@ extern void __print_backtrace ();
 extern int (*libc_fflush) (FILE *);
 extern int (*libc_fputc) (int, FILE *);
 extern int (*libc_printf) (const char*, ...);
-extern int (*libc_sprintf) (char *, const char*, ...);
+extern int (*libc_sprintf) (char *buf, const char*, ...);
 extern int (*libc_fprintf) (FILE *, const char*, ...);
-extern int (*libc_vprintf) (const char*, va_list);
-extern int (*libc_vsprintf) (char *, const char*, va_list);
-extern int (*libc_vfprintf) (FILE *, const char*, va_list);
 
 
 #endif
