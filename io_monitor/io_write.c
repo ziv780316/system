@@ -70,7 +70,7 @@ int fflush ( FILE *stream )
 
 	if ( -1 == fd )
 	{
-		libc_fprintf( stderr, "[Error] fileno %s fail in %s -> %s\n", __func__, strerror(errno) );
+		libc_fprintf( stderr, "[Error] fileno fail in %s -> %s\n", __func__, strerror(errno) );
 		return status;
 	}
 
@@ -118,13 +118,20 @@ int fputc ( int c, FILE *stream )
 
 	if ( -1 == fd )
 	{
-		libc_fprintf( stderr, "[Error] fileno %s fail in %s -> %s\n", __func__, strerror(errno) );
+		libc_fprintf( stderr, "[Error] fileno fail in %s -> %s\n", __func__, strerror(errno) );
 		__print_backtrace();
-		return status;
 	}
 
 	pid_t pid = syscall( SYS_getpid ); 
-	char *file_name = __get_proc_fd_name( pid, fd );
+	char *file_name;
+	if ( -1 == fd )
+	{
+		file_name = "?";
+	}
+	else
+	{
+		file_name = __get_proc_fd_name( pid, fd );
+	}
 	char *exec_name = __get_proc_exec_name( pid );
 	FILE *fout = __create_report_file( "fputc", exec_name, file_name );
 
@@ -150,10 +157,11 @@ int printf ( const char *fmt, ... )
 	// get information from monitor 
 	__init_monitor();
 
-	va_list va;
+	va_list va, va_origin;
 	va_start( va, fmt );
+	va_copy( va_origin , va );
 
-	int status = libc_printf( fmt, va );
+	int status = libc_vprintf( fmt, va );
 	int errno_store = errno;	
 
 	// show information that monitor file write by which process
@@ -164,7 +172,7 @@ int printf ( const char *fmt, ... )
 
 	if ( -1 == fd )
 	{
-		libc_fprintf( stderr, "[Error] fileno %s fail in %s -> %s\n", __func__, strerror(errno) );
+		libc_fprintf( stderr, "[Error] fileno fail in %s -> %s\n", __func__, strerror(errno) );
 		__print_backtrace();
 		return status;
 	}
@@ -172,7 +180,7 @@ int printf ( const char *fmt, ... )
 	pid_t pid = syscall( SYS_getpid ); 
 	char *file_name = __get_proc_fd_name( pid, fd );
 	char *exec_name = __get_proc_exec_name( pid );
-	FILE *fout = __create_report_file( "printf", exec_name, file_name );
+	FILE *fout = __create_report_file( "printf", exec_name, "stdout" );
 
 	if ( fout )
 	{
@@ -182,9 +190,11 @@ int printf ( const char *fmt, ... )
 		}
 		else
 		{
-			libc_fprintf( fout, fmt, va );
+			libc_vfprintf( fout, fmt, va_origin );
 		}
 	}
+
+	va_end( va );
 
 	fclose( fout );
 
@@ -196,10 +206,11 @@ int fprintf ( FILE *stream, const char *fmt, ... )
 	// get information from monitor 
 	__init_monitor();
 
-	va_list va;
+	va_list va, va_origin;
 	va_start( va, fmt );
+	va_copy( va_origin , va );
 
-	int status = libc_fprintf( stream, fmt, va );
+	int status = libc_vfprintf( stream, fmt, va );
 	int errno_store = errno;	
 
 	// show information that monitor file write by which process
@@ -210,7 +221,7 @@ int fprintf ( FILE *stream, const char *fmt, ... )
 
 	if ( -1 == fd )
 	{
-		libc_fprintf( stderr, "[Error] fileno %s fail in %s -> %s\n", __func__, strerror(errno) );
+		libc_fprintf( stderr, "[Error] fileno fail in %s -> %s\n", __func__, strerror(errno) );
 		__print_backtrace();
 		return status;
 	}
@@ -228,9 +239,11 @@ int fprintf ( FILE *stream, const char *fmt, ... )
 		}
 		else
 		{
-			libc_fprintf( fout, fmt, va );
+			libc_vfprintf( fout, fmt, va_origin );
 		}
 	}
+
+	va_end( va );
 
 	fclose( fout );
 
@@ -242,10 +255,11 @@ int sprintf ( char *buf, const char *fmt, ... )
 	// get information from monitor 
 	__init_monitor();
 
-	va_list va;
+	va_list va, va_origin;
 	va_start( va, fmt );
+	va_copy( va_origin , va );
 
-	int status = libc_sprintf( buf, fmt, va );
+	int status = libc_vsprintf( buf, fmt, va );
 	int errno_store = errno;	
 
 	// show information that monitor file write by which process
@@ -263,7 +277,136 @@ int sprintf ( char *buf, const char *fmt, ... )
 		}
 		else
 		{
-			libc_fprintf( fout, fmt, va );
+			libc_vfprintf( fout, fmt, va_origin );
+		}
+	}
+
+	va_end( va );
+
+	fclose( fout );
+
+	return status;
+}
+
+int vprintf ( const char *fmt, va_list va )
+{
+	// get information from monitor 
+	__init_monitor();
+
+	va_list va_origin;
+	va_copy( va_origin, va );
+
+	int status = libc_vprintf( fmt, va );
+	int errno_store = errno;	
+
+	// show information that monitor file write by which process
+	char pid_info[BUFSIZ];
+	__init_pid_info( pid_info );
+
+	int fd = fileno( stdout );
+
+	if ( -1 == fd )
+	{
+		libc_fprintf( stderr, "[Error] fileno fail in %s -> %s\n", __func__, strerror(errno) );
+		__print_backtrace();
+		return status;
+	}
+
+	pid_t pid = syscall( SYS_getpid ); 
+	char *file_name = __get_proc_fd_name( pid, fd );
+	char *exec_name = __get_proc_exec_name( pid );
+	FILE *fout = __create_report_file( "vprintf", exec_name, "stdout" );
+
+	if ( fout )
+	{
+		if ( status < 0 )
+		{
+			// error
+		}
+		else
+		{
+			libc_vfprintf( fout, fmt, va_origin );
+		}
+	}
+
+	fclose( fout );
+
+	return status;
+}
+
+int vsprintf ( char *buf, const char *fmt, va_list va )
+{
+	// get information from monitor 
+	__init_monitor();
+
+	va_list va_origin;
+	va_copy( va_origin, va );
+
+	int status = libc_vsprintf( buf, fmt, va );
+	int errno_store = errno;	
+
+	// show information that monitor file write by which process
+	char pid_info[BUFSIZ];
+	__init_pid_info( pid_info );
+	pid_t pid = syscall( SYS_getpid ); 
+	char *exec_name = __get_proc_exec_name( pid );
+	FILE *fout = __create_report_file( "vsprintf", exec_name, "buf" );
+
+	if ( fout )
+	{
+		if ( status < 0 )
+		{
+			// error
+		}
+		else
+		{
+			libc_vfprintf( fout, fmt, va_origin );
+		}
+	}
+
+	fclose( fout );
+
+	return status;
+}
+
+int vfprintf ( FILE *stream, const char *fmt, va_list va )
+{
+	// get information from monitor 
+	__init_monitor();
+
+	va_list va_origin;
+	va_copy( va_origin, va );
+
+	int status = libc_vfprintf( stream, fmt, va );
+	int errno_store = errno;	
+
+	// show information that monitor file write by which process
+	char pid_info[BUFSIZ];
+	__init_pid_info( pid_info );
+
+	int fd = fileno( stream );
+
+	if ( -1 == fd )
+	{
+		libc_fprintf( stderr, "[Error] fileno fail in %s -> %s\n", __func__, strerror(errno) );
+		__print_backtrace();
+		return status;
+	}
+
+	pid_t pid = syscall( SYS_getpid ); 
+	char *file_name = __get_proc_fd_name( pid, fd );
+	char *exec_name = __get_proc_exec_name( pid );
+	FILE *fout = __create_report_file( "vfprintf", exec_name, file_name );
+
+	if ( fout )
+	{
+		if ( status < 0 )
+		{
+			// error
+		}
+		else
+		{
+			libc_vfprintf( fout, fmt, va_origin );
 		}
 	}
 

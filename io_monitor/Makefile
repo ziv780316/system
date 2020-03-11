@@ -14,11 +14,17 @@ debug: default
 test: main.c
 	$(CC) main.c $(CFLAGS) -o $@ 
 
+%.i: %.c 
+	$(CC) -E $< $(CFLAGS) -o $@ 
+
 %.o: %.c %.h
 	$(CC) -c $< $(CFLAGS) -o $@ 
 
 libremove.so: remove.o misc.o
 	$(CC) $^ $(CFLAGS) -o $@ -shared -ldl
+
+io_both.o: io_write.o io_read.o
+	$(CC) -c $(@:.o=.c) $(CFLAGS) -o $@ 
 
 libio_both.so: libio_read.so libio_write.so misc.o io_both.o 
 	$(CC) io_both.o misc.o $(CFLAGS) -o $@ -shared -ldl

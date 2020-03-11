@@ -33,12 +33,12 @@ ssize_t read ( int fd, void *buf, size_t n )
 	{
 		if ( -1 == status )
 		{
-			fprintf( fout, "[read] process=%s exec=%s read fd=%d file=\"%s\" status=fail error=\"%s\"\n", pid_info, exec_name, fd, file_name, strerror(errno_store) );
+			libc_fprintf( fout, "[read] process=%s exec=%s read fd=%d file=\"%s\" status=fail error=\"%s\"\n", pid_info, exec_name, fd, file_name, strerror(errno_store) );
 		}
 		else
 		{
 			ssize_t n_read = status;
-			fprintf( fout, "[read] process=%s exec=%s read fd=%d file=\"%s\" bytes=%ld status=ok\n", pid_info, exec_name, fd, file_name, n_read );
+			libc_fprintf( fout, "[read] process=%s exec=%s read fd=%d file=\"%s\" bytes=%ld status=ok\n", pid_info, exec_name, fd, file_name, n_read );
 			if ( n_read > 0 )
 			{
 				// non EOF
