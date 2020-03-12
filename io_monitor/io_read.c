@@ -14,10 +14,8 @@
 ssize_t read ( int fd, void *buf, size_t n )
 {
 	// get information from monitor 
-	__init_monitor();
-
 	ssize_t status;	
-	status = syscall( SYS_read, fd, buf, n );
+	status = libc_read( fd, buf, n );
 	int errno_store = errno;	
 
 	// show information that monitor file read by which process
@@ -25,8 +23,10 @@ ssize_t read ( int fd, void *buf, size_t n )
 	__init_pid_info( pid_info );
 
 	pid_t pid = syscall( SYS_getpid ); 
-	char *file_name = __get_proc_fd_name( pid, fd );
-	char *exec_name = __get_proc_exec_name( pid );
+	char file_name[BUFSIZ];
+	char exec_name[BUFSIZ];
+	__get_proc_fd_name( file_name, pid, fd );
+	__get_proc_exec_name( exec_name, pid );
 	FILE *fout = __create_report_file( "read", exec_name, file_name );
 
 	if ( fout )

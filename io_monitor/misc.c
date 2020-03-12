@@ -16,8 +16,8 @@
 static int g_dump_type = DUMP_NONE;
 static char *g_output_dir = NULL;
 
-pthread_mutex_t g_mutex = PTHREAD_MUTEX_INITIALIZER;
-
+ssize_t (*libc_read) (int , void *, size_t) = NULL;
+ssize_t (*libc_write) (int , const void *, size_t) = NULL;
 int (*libc_fflush) (FILE *) = NULL;
 int (*libc_fputc) (int, FILE *) = NULL;
 int (*libc_printf) (const char*, ...) = NULL;
@@ -122,7 +122,8 @@ void __init_pid_info ( char *pid_info )
 
 FILE *__create_report_file ( char *type, char *exec, char *event_file )
 {
-	char *event_file_name_modify = strdup( event_file );
+	char event_file_name_modify[BUFSIZ];
+	strcpy( event_file_name_modify, event_file );
 	for ( int i = 0; event_file_name_modify[i] != '\0' ; ++i )
 	{
 		if ( ('/' == event_file_name_modify[i]) ||
@@ -132,7 +133,8 @@ FILE *__create_report_file ( char *type, char *exec, char *event_file )
 		}
 	}
 
-	char *exec_name_modify = strdup( exec );
+	char exec_name_modify[BUFSIZ];
+	strcpy( exec_name_modify, exec );
 	for ( int i = 0; exec_name_modify[i] != '\0' ; ++i )
 	{
 		if ( ('/' == exec_name_modify[i]) ||
@@ -157,56 +159,61 @@ FILE *__create_report_file ( char *type, char *exec, char *event_file )
 	return fout;
 }
 
-void __init_monitor ()
+__attribute__((constructor))
+void __init_monitor () 
 {
-	pthread_mutex_lock( &g_mutex );
+	// bind origin libc function
+	libc_fprintf = (int (*) (FILE *, const char *, ...)) dlsym_rtld_next( "fprintf" );
+	libc_printf = (int (*) (const char *, ...)) dlsym_rtld_next( "printf" );
+	libc_sprintf = (int (*) (char *, const char *, ...)) dlsym_rtld_next( "sprintf" );
+	libc_vfprintf = (int (*) (FILE *, const char *, va_list)) dlsym_rtld_next( "vfprintf" );
+	libc_vprintf = (int (*) (const char *, va_list)) dlsym_rtld_next( "vprintf" );
+	libc_vsprintf = (int (*) (char *, const char *, va_list)) dlsym_rtld_next( "vsprintf" );
+	libc_fflush = (int (*) (FILE *)) dlsym_rtld_next( "fflush" );
+	libc_fputc = (int (*) (int, FILE *)) dlsym_rtld_next( "fputc" );
+	libc_read = (ssize_t (*) (int , void *, size_t)) dlsym_rtld_next( "read" );
+	libc_write = (ssize_t (*) (int , const void *, size_t)) dlsym_rtld_next( "write" );
 
-	static bool initialized = false;
-	if ( !initialized )
+	// get io_monitor spec
+	char *env;
+	env = getenv_thread_save( "IO_MONITOR_DUMP_TYPE" );
+	if ( !env )
 	{
-		// bind origin libc function
-		libc_fprintf = (int (*) (FILE *, const char *, ...)) dlsym_rtld_next( "fprintf" );
-		libc_printf = (int (*) (const char *, ...)) dlsym_rtld_next( "printf" );
-		libc_sprintf = (int (*) (char *, const char *, ...)) dlsym_rtld_next( "sprintf" );
-		libc_vfprintf = (int (*) (FILE *, const char *, va_list)) dlsym_rtld_next( "vfprintf" );
-		libc_vprintf = (int (*) (const char *, va_list)) dlsym_rtld_next( "vprintf" );
-		libc_vsprintf = (int (*) (char *, const char *, va_list)) dlsym_rtld_next( "vsprintf" );
-		libc_fflush = (int (*) (FILE *)) dlsym_rtld_next( "fflush" );
-		libc_fputc = (int (*) (int, FILE *)) dlsym_rtld_next( "fputc" );
-
-		// get io_monitor spec
-		char *env;
-		env = getenv_thread_save( "IO_MONITOR_DUMP_TYPE" );
-		if ( !env )
-		{
-			libc_fprintf( stderr, "[Warning] getenv IO_MONITOR_DUMP_TYPE fail, use type ascii\n" );
-			g_dump_type = DUMP_ASCII;
-		}
-		else
-		{
-			libc_fprintf( stderr, "[io_monitor] getenv IO_MONITOR_DUMP_TYPE=%s\n", env );
-			g_dump_type = atoi( env );
-		}
-
-		env = getenv_thread_save( "IO_MONITOR_REPORT_DIR" );
-		if ( !env )
-		{
-			libc_fprintf( stderr, "[Error] getenv IO_MONITOR_DUMP_TYPE fail, use /tmp\n" );
-			g_output_dir = strdup( "/tmp" );
-		}
-		else
-		{
-			libc_fprintf( stderr, "[io_monitor] getenv IO_MONITOR_REPORT_DIR=%s\n", env );
-			g_output_dir = strdup( env );
-		}
-
-		// register signal 
-		register_signal_handler( SIGSEGV, sigsegv_backtrace );
-
-		initialized = true;
+		g_dump_type = DUMP_ASCII;
+	}
+	else
+	{
+		g_dump_type = atoi( env );
 	}
 
-	pthread_mutex_unlock( &g_mutex );
+	env = getenv_thread_save( "IO_MONITOR_REPORT_DIR" );
+	if ( !env )
+	{
+		g_output_dir = strdup( "/tmp" );
+	}
+	else
+	{
+		g_output_dir = strdup( env );
+	}
+
+	// register signal 
+	register_signal_handler( SIGSEGV, sigsegv_backtrace );
+
+	// record process
+	char report_file[BUFSIZ];
+	libc_sprintf( report_file, "%s/init.report", g_output_dir );
+	FILE *fout = fopen( report_file, "a" );
+	if ( !fout )
+	{
+		libc_fprintf( stderr, "[Error] fopen %s fail in %s -> %s\n", report_file, __func__, strerror(errno) );
+		__print_backtrace();
+	}
+	char cmd[BUFSIZ];
+	pid_t pid = syscall(SYS_getpid);
+	__get_proc_cmd( cmd, pid );
+	libc_fprintf( fout, "pid=%d cmd=%s\n", pid, cmd );
+
+	fclose( fout );
 }
 
 void __dump_data_to_report ( FILE *fout, const void *buf, size_t n_bytes )
@@ -234,19 +241,19 @@ void __dump_data_to_report ( FILE *fout, const void *buf, size_t n_bytes )
 	}
 }
 
-char *__get_proc_fd_name ( pid_t pid, int fd )
+void __get_proc_fd_name ( char *buf, pid_t pid, int fd )
 {
 	if ( 0 == fd )
 	{
-		return strdup( "stdin" );
+		strcpy( buf, "stdin" );
 	}
 	else if ( 1 == fd )
 	{
-		return strdup( "stdout" );
+		strcpy( buf, "stdout" );
 	}
 	else if ( 2 == fd )
 	{
-		return strdup( "stderr" );
+		strcpy( buf, "stderr" );
 	}
 	else
 	{
@@ -258,13 +265,12 @@ char *__get_proc_fd_name ( pid_t pid, int fd )
 			libc_fprintf( stderr, "[Error] readlink %s fail in %s\n", fd_link_path, __func__ );
 			abort();
 		}
-		return strdup( file_name );
+		strcpy( buf, file_name );
 	}
 }
 
-char *__get_proc_exec_name ( pid_t pid )
+void __get_proc_exec_name ( char *buf, pid_t pid )
 {
-	char exec_name[BUFSIZ] = {0};
 	char exec_link_path[BUFSIZ] = {0};
 	libc_sprintf( exec_link_path, "/proc/%d/cmdline", pid );
 	FILE *fin = fopen( exec_link_path, "r" );
@@ -273,37 +279,72 @@ char *__get_proc_exec_name ( pid_t pid )
 		libc_fprintf( stderr, "[Error] open %s fail in %s\n", exec_link_path, __func__ );
 		abort();
 	}
-	char cmd_buf[BUFSIZ] = {0};
-	fgets( cmd_buf, BUFSIZ, fin );
 
-	char exec[BUFSIZ];
-	char *pos = cmd_buf;
-	sscanf( cmd_buf, "%s", exec );
-	if ( (0 == strcmp("sh", exec )) || (0 == strcmp("csh", exec)) )
+	char line[BUFSIZ] = {0};
+	char arg[BUFSIZ];
+	libc_read( fileno(fin), line, BUFSIZ );
+	int i = 0;
+	for ( ; line[i]; ++i )
 	{
-		// command is -> sh -c program
-		char arg[BUFSIZ];
-		strcpy( arg, cmd_buf );
-		while ( true )
-		{
-			pos += strlen(arg) + 1;
-			libc_sprintf( arg, "%s", pos );
-			if ( '\0' == *arg ) 
-			{
-				break;
-			}
-			else if ( '-' != *arg ) 
-			{
-				sscanf( arg, "%s", exec ); // ignore ' '
-				break;
-			}
-		}
+		arg[i] = line[i];
 	}
-	fclose( fin );
+	arg[i] = '\0';
+	if ( (0 == strcmp("sh", arg )) || (0 == strcmp("csh", arg)) || (0 == strcmp("bash", arg)) )
+	{
+		char shell[BUFSIZ];
+		strcpy( shell, arg );
 
-	return strdup( exec );
+		++i;
+		while ( line[i] )
+		{
+			int j = 0;
+			for ( ; line[i + j]; ++j )
+			{
+				arg[j] = line[i + j];
+			}
+			arg[j] = '\0';
+			if ( '-' != arg[0] ) 
+			{
+				strcpy( buf, arg );
+				return;
+			}
+			i += j + 1;
+		}
+
+		strcpy( buf, shell );
+		return;
+	}
+
+	fclose( fin );
+	strcpy( buf, arg );
+	return;
 }
 
+void __get_proc_cmd ( char *cmd_buf, pid_t pid )
+{
+	char exec_link_path[BUFSIZ] = {0};
+	libc_sprintf( exec_link_path, "/proc/%d/cmdline", pid );
+	FILE *fin = fopen( exec_link_path, "r" );
+	if ( !fin )
+	{
+		libc_fprintf( stderr, "[Error] open %s fail in %s\n", exec_link_path, __func__ );
+		abort();
+	}
+
+	char line[BUFSIZ] = {0};
+	ssize_t n_read = libc_read( fileno(fin), line, BUFSIZ );
+	for ( int i = 0; i < n_read; ++i )
+	{
+		if ( '\0' == line[i] )
+		{
+			line[i] = ' ';
+		}
+	}
+	
+	fclose( fin );
+
+	strcpy( cmd_buf, line );
+}
 
 void __print_backtrace ()
 {
@@ -321,4 +362,44 @@ void __print_backtrace ()
 	}
 
 	free( strings );
+}
+
+void exit ( int exit_code )  
+{
+	char report_file[BUFSIZ];
+	libc_sprintf( report_file, "%s/exit.report", g_output_dir );
+	FILE *fout = fopen( report_file, "a" );
+	if ( !fout )
+	{
+		libc_fprintf( stderr, "[Error] fopen %s fail in %s -> %s\n", report_file, __func__, strerror(errno) );
+		__print_backtrace();
+	}
+	char cmd[BUFSIZ];
+	pid_t pid = syscall(SYS_getpid);
+	__get_proc_cmd( cmd, pid );
+	libc_fprintf( fout, "exit=%d pid=%d cmd=%s\n", exit_code, pid, cmd );
+	fclose( fout );
+
+	void (*libc_exit) (int) = (void (*) (int)) dlsym_rtld_next( "exit" );
+	libc_exit( exit_code );
+}
+
+void _exit ( int exit_code )  
+{
+	char report_file[BUFSIZ];
+	libc_sprintf( report_file, "%s/exit.report", g_output_dir );
+	FILE *fout = fopen( report_file, "a" );
+	if ( !fout )
+	{
+		libc_fprintf( stderr, "[Error] fopen %s fail in %s -> %s\n", report_file, __func__, strerror(errno) );
+		__print_backtrace();
+	}
+	char cmd[BUFSIZ];
+	pid_t pid = syscall(SYS_getpid);
+	__get_proc_cmd( cmd, pid );
+	libc_fprintf( fout, "_exit=%d pid=%d cmd=%s\n", exit_code, pid, cmd );
+	fclose( fout );
+
+	void (*libc_exit) (int) = (void (*) (int)) dlsym_rtld_next( "_exit" );
+	libc_exit( exit_code );
 }

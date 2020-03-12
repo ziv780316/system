@@ -19,7 +19,7 @@ $program -c "$cmd" -o $output_dir -t ascii -m write
 output_dir=result4
 rm -rf $output_dir
 cmd="cat run.sh > /dev/null"
-$program -c "$cmd" -o $output_dir -t ascii -m read
+$program -c "$cmd" -o $output_dir -t ascii -m both
 
 output_dir=result5
 rm -rf $output_dir
@@ -28,5 +28,5 @@ $program -c "$cmd" -o $output_dir -t hex -m both
 
 output_dir=result6
 rm -rf $output_dir
-cmd="./a.out"
+cmd="./a.out 1 22 333"
 $program -c "$cmd" -o $output_dir -t ascii -m both

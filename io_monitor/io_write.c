@@ -14,11 +14,8 @@
 
 ssize_t write ( int fd, const void *buf, size_t n )
 {
-	// get information from monitor 
-	__init_monitor();
-
 	ssize_t status;	
-	status = syscall( SYS_write, fd, buf, n );
+	status = libc_write( fd, buf, n );
 	int errno_store = errno;	
 
 	// show information that monitor file write by which process
@@ -26,8 +23,10 @@ ssize_t write ( int fd, const void *buf, size_t n )
 	__init_pid_info( pid_info );
 
 	pid_t pid = syscall( SYS_getpid ); 
-	char *file_name = __get_proc_fd_name( pid, fd );
-	char *exec_name = __get_proc_exec_name( pid );
+	char file_name[BUFSIZ];
+	char exec_name[BUFSIZ];
+	__get_proc_fd_name( file_name, pid, fd );
+	__get_proc_exec_name( exec_name, pid );
 	FILE *fout = __create_report_file( "write", exec_name, file_name );
 
 	if ( -1 == status )
@@ -53,9 +52,6 @@ ssize_t write ( int fd, const void *buf, size_t n )
 
 int fflush ( FILE *stream )
 {
-	// get information from monitor 
-	__init_monitor();
-
 	char *write_ptr = stream->_IO_write_ptr;
 	char *write_base = stream->_IO_write_base;
 
@@ -75,8 +71,10 @@ int fflush ( FILE *stream )
 	}
 
 	pid_t pid = syscall( SYS_getpid ); 
-	char *file_name = __get_proc_fd_name( pid, fd );
-	char *exec_name = __get_proc_exec_name( pid );
+	char file_name[BUFSIZ];
+	char exec_name[BUFSIZ];
+	__get_proc_fd_name( file_name, pid, fd );
+	__get_proc_exec_name( exec_name, pid );
 	FILE *fout = __create_report_file( "fflush", exec_name, file_name );
 
 	if ( fout )
@@ -104,9 +102,6 @@ int fflush ( FILE *stream )
 
 int fputc ( int c, FILE *stream )
 {
-	// get information from monitor 
-	__init_monitor();
-
 	int status = libc_fputc( c, stream );
 	int errno_store = errno;	
 
@@ -123,16 +118,17 @@ int fputc ( int c, FILE *stream )
 	}
 
 	pid_t pid = syscall( SYS_getpid ); 
-	char *file_name;
+	char file_name[BUFSIZ];
+	char exec_name[BUFSIZ];
 	if ( -1 == fd )
 	{
-		file_name = "?";
+		strcpy( file_name, "?" );
 	}
 	else
 	{
-		file_name = __get_proc_fd_name( pid, fd );
+		__get_proc_fd_name( file_name, pid, fd );
 	}
-	char *exec_name = __get_proc_exec_name( pid );
+	__get_proc_exec_name( exec_name, pid );
 	FILE *fout = __create_report_file( "fputc", exec_name, file_name );
 
 	if ( fout )
@@ -154,9 +150,6 @@ int fputc ( int c, FILE *stream )
 
 int printf ( const char *fmt, ... )
 {
-	// get information from monitor 
-	__init_monitor();
-
 	va_list va, va_origin;
 	va_start( va, fmt );
 	va_copy( va_origin , va );
@@ -178,8 +171,10 @@ int printf ( const char *fmt, ... )
 	}
 
 	pid_t pid = syscall( SYS_getpid ); 
-	char *file_name = __get_proc_fd_name( pid, fd );
-	char *exec_name = __get_proc_exec_name( pid );
+	char file_name[BUFSIZ];
+	char exec_name[BUFSIZ];
+	__get_proc_fd_name( file_name, pid, fd );
+	__get_proc_exec_name( exec_name, pid );
 	FILE *fout = __create_report_file( "printf", exec_name, "stdout" );
 
 	if ( fout )
@@ -203,9 +198,6 @@ int printf ( const char *fmt, ... )
 
 int fprintf ( FILE *stream, const char *fmt, ... )
 {
-	// get information from monitor 
-	__init_monitor();
-
 	va_list va, va_origin;
 	va_start( va, fmt );
 	va_copy( va_origin , va );
@@ -227,8 +219,10 @@ int fprintf ( FILE *stream, const char *fmt, ... )
 	}
 
 	pid_t pid = syscall( SYS_getpid ); 
-	char *file_name = __get_proc_fd_name( pid, fd );
-	char *exec_name = __get_proc_exec_name( pid );
+	char file_name[BUFSIZ];
+	char exec_name[BUFSIZ];
+	__get_proc_fd_name( file_name, pid, fd );
+	__get_proc_exec_name( exec_name, pid );
 	FILE *fout = __create_report_file( "fprintf", exec_name, file_name );
 
 	if ( fout )
@@ -252,9 +246,6 @@ int fprintf ( FILE *stream, const char *fmt, ... )
 
 int sprintf ( char *buf, const char *fmt, ... )
 {
-	// get information from monitor 
-	__init_monitor();
-
 	va_list va, va_origin;
 	va_start( va, fmt );
 	va_copy( va_origin , va );
@@ -265,8 +256,10 @@ int sprintf ( char *buf, const char *fmt, ... )
 	// show information that monitor file write by which process
 	char pid_info[BUFSIZ];
 	__init_pid_info( pid_info );
+
 	pid_t pid = syscall( SYS_getpid ); 
-	char *exec_name = __get_proc_exec_name( pid );
+	char exec_name[BUFSIZ];
+	__get_proc_exec_name( exec_name, pid );
 	FILE *fout = __create_report_file( "sprintf", exec_name, "buf" );
 
 	if ( fout )
@@ -290,9 +283,6 @@ int sprintf ( char *buf, const char *fmt, ... )
 
 int vprintf ( const char *fmt, va_list va )
 {
-	// get information from monitor 
-	__init_monitor();
-
 	va_list va_origin;
 	va_copy( va_origin, va );
 
@@ -313,8 +303,10 @@ int vprintf ( const char *fmt, va_list va )
 	}
 
 	pid_t pid = syscall( SYS_getpid ); 
-	char *file_name = __get_proc_fd_name( pid, fd );
-	char *exec_name = __get_proc_exec_name( pid );
+	char file_name[BUFSIZ];
+	char exec_name[BUFSIZ];
+	__get_proc_fd_name( file_name, pid, fd );
+	 __get_proc_exec_name( exec_name, pid );
 	FILE *fout = __create_report_file( "vprintf", exec_name, "stdout" );
 
 	if ( fout )
@@ -336,9 +328,6 @@ int vprintf ( const char *fmt, va_list va )
 
 int vsprintf ( char *buf, const char *fmt, va_list va )
 {
-	// get information from monitor 
-	__init_monitor();
-
 	va_list va_origin;
 	va_copy( va_origin, va );
 
@@ -348,8 +337,10 @@ int vsprintf ( char *buf, const char *fmt, va_list va )
 	// show information that monitor file write by which process
 	char pid_info[BUFSIZ];
 	__init_pid_info( pid_info );
+
 	pid_t pid = syscall( SYS_getpid ); 
-	char *exec_name = __get_proc_exec_name( pid );
+	char exec_name[BUFSIZ];
+	 __get_proc_exec_name( exec_name, pid );
 	FILE *fout = __create_report_file( "vsprintf", exec_name, "buf" );
 
 	if ( fout )
@@ -371,9 +362,6 @@ int vsprintf ( char *buf, const char *fmt, va_list va )
 
 int vfprintf ( FILE *stream, const char *fmt, va_list va )
 {
-	// get information from monitor 
-	__init_monitor();
-
 	va_list va_origin;
 	va_copy( va_origin, va );
 
@@ -394,8 +382,10 @@ int vfprintf ( FILE *stream, const char *fmt, va_list va )
 	}
 
 	pid_t pid = syscall( SYS_getpid ); 
-	char *file_name = __get_proc_fd_name( pid, fd );
-	char *exec_name = __get_proc_exec_name( pid );
+	char file_name[BUFSIZ];
+	char exec_name[BUFSIZ];
+	__get_proc_fd_name( file_name, pid, fd );
+	__get_proc_exec_name( exec_name, pid );
 	FILE *fout = __create_report_file( "vfprintf", exec_name, file_name );
 
 	if ( fout )
