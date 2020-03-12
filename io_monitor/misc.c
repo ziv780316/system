@@ -56,6 +56,53 @@ static void *dlsym_rtld_next ( char *name )
 	}
 }
 
+static char *getenv_thread_save (const char *name)
+{
+	if ( (NULL == __environ) || ('\0' == name[0]) )
+	{
+		return NULL;
+	}
+
+	int name_len = 0;
+	for ( int i = 0; name[i]; ++i )
+	{
+		++name_len;
+	}
+
+	char *ep;
+	for ( int i = 0; __environ[i]; ++i )
+	{
+		ep = __environ[i];
+
+		int ep_name_len = 0;
+		for ( int j = 0; ep[j]; ++j )
+		{
+			if ( '=' == ep[j] )
+			{
+				break;
+			}
+			++ep_name_len;
+		}
+		if ( ep_name_len == name_len )
+		{
+			bool match = true;
+			for ( int j = 0; j < ep_name_len; ++j )
+			{
+				if ( ep[j] != name[j] )
+				{
+					match = false;
+				}
+			}
+			if ( match )
+			{
+				return &(ep[ep_name_len + 1]);
+			}
+		}
+	}
+
+	return NULL;
+}
+
 void __init_pid_info ( char *pid_info )
 {
 	pid_t tid;
@@ -129,7 +176,7 @@ void __init_monitor ()
 
 		// get io_monitor spec
 		char *env;
-		env = getenv( "IO_MONITOR_DUMP_TYPE" );
+		env = getenv_thread_save( "IO_MONITOR_DUMP_TYPE" );
 		if ( !env )
 		{
 			libc_fprintf( stderr, "[Warning] getenv IO_MONITOR_DUMP_TYPE fail, use type ascii\n" );
@@ -137,10 +184,11 @@ void __init_monitor ()
 		}
 		else
 		{
+			libc_fprintf( stderr, "[io_monitor] getenv IO_MONITOR_DUMP_TYPE=%s\n", env );
 			g_dump_type = atoi( env );
 		}
 
-		env = getenv( "IO_MONITOR_REPORT_DIR" );
+		env = getenv_thread_save( "IO_MONITOR_REPORT_DIR" );
 		if ( !env )
 		{
 			libc_fprintf( stderr, "[Error] getenv IO_MONITOR_DUMP_TYPE fail, use /tmp\n" );
@@ -148,6 +196,7 @@ void __init_monitor ()
 		}
 		else
 		{
+			libc_fprintf( stderr, "[io_monitor] getenv IO_MONITOR_REPORT_DIR=%s\n", env );
 			g_output_dir = strdup( env );
 		}
 
