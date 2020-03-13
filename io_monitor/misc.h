@@ -17,6 +17,7 @@ extern void __print_backtrace ();
 
 extern ssize_t (*libc_read) (int , void *, size_t);
 extern ssize_t (*libc_write) (int , const void *, size_t);
+extern size_t (*libc_fwrite) (const void *, size_t, size_t, FILE *);
 extern int (*libc_fflush) (FILE *);
 extern int (*libc_fputc) (int, FILE *);
 extern int (*libc_printf) (const char*, ...);
@@ -25,6 +26,8 @@ extern int (*libc_fprintf) (FILE *, const char*, ...);
 extern int (*libc_vprintf) (const char*, va_list);
 extern int (*libc_vsprintf) (char *, const char*, va_list);
 extern int (*libc_vfprintf) (FILE *, const char*, va_list);
+extern void (*libc_exit) (int);
+extern void (*libc__exit) (int);
 
 
 #endif

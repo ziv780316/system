@@ -13,6 +13,8 @@
 
 ssize_t read ( int fd, void *buf, size_t n )
 {
+	__init_monitor ();
+
 	// get information from monitor 
 	ssize_t status;	
 	status = libc_read( fd, buf, n );
@@ -33,7 +35,6 @@ ssize_t read ( int fd, void *buf, size_t n )
 	{
 		if ( -1 == status )
 		{
-			libc_fprintf( fout, "[read] process=%s exec=%s read fd=%d file=\"%s\" status=fail error=\"%s\"\n", pid_info, exec_name, fd, file_name, strerror(errno_store) );
 		}
 		else
 		{

@@ -3,7 +3,7 @@
 
 CC=gcc
 LIB=-static -lm 
-CFLAGS= -O0 -g -std=c99 -fPIC
+CFLAGS= -O0 -g -std=c99 -fPIC -lpthread
 TARGET=io_monitor
 IO_MONITOR_OBJ=io_monitor.o opts.o
 IO_MONITOR_LIB=libio_read.so libio_write.so libio_both.so
