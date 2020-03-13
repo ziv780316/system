@@ -15,6 +15,7 @@
 
 static int g_dump_type = DUMP_NONE;
 static char *g_output_dir = NULL;
+static pid_t g_io_monitor_pid = 1;
 
 ssize_t (*libc_read) (int , void *, size_t) = NULL;
 ssize_t (*libc_write) (int , const void *, size_t) = NULL;
@@ -102,6 +103,63 @@ static char *getenv_thread_save (const char *name)
 
 	return NULL;
 }
+
+static void record_process_info ()
+{
+	// record command
+	char report_file[BUFSIZ];
+	libc_sprintf( report_file, "%s/init.report", g_output_dir );
+	FILE *fout = fopen( report_file, "a" );
+	if ( !fout )
+	{
+		libc_fprintf( stderr, "[Error] fopen %s fail in %s -> %s\n", report_file, __func__, strerror(errno) );
+		__print_backtrace();
+	}
+	char cmd[BUFSIZ];
+	pid_t pid = syscall(SYS_getpid);
+	pid_t ppid = syscall(SYS_getppid);
+	__get_proc_cmd( cmd, pid );
+	libc_fprintf( fout, "pid=%d ppid=%d cmd=%s\n", pid, ppid, cmd );
+	fclose( fout );
+
+	// copy env file
+	//char environ_path[BUFSIZ];
+	//libc_sprintf( environ_path, "/proc/%d/environ", pid );
+	//FILE *fin = fopen( environ_path, "r" );
+	//if ( !fin )
+	//{
+	//	libc_fprintf( stderr, "[Error] fopen %s fail in %s -> %s\n", environ_path, __func__, strerror(errno) );
+	//	__print_backtrace();
+	//}
+
+	//libc_sprintf( report_file, "%s/environ.%d", g_output_dir, pid );
+	//fout = fopen( report_file, "w" );
+	//if ( !fout )
+	//{
+	//	libc_fprintf( stderr, "[Error] fopen %s fail in %s -> %s\n", report_file, __func__, strerror(errno) );
+	//	__print_backtrace();
+	//}
+
+	//int ch;
+	//while( EOF != (ch = fgetc( fin )) )
+	//{
+	//	if ( '\0' == ch )
+	//	{
+	//		libc_fputc( '\n', fout );
+	//	}
+	//	else
+	//	{
+	//		libc_fputc( ch, fout );
+	//	}
+	//}
+	//fclose( fin );
+	//fclose( fout );
+
+	// trace parent command
+	__print_all_parent_cmd( fout, pid, g_io_monitor_pid );
+
+}
+
 
 void __init_pid_info ( char *pid_info )
 {
@@ -196,24 +254,22 @@ void __init_monitor ()
 		g_output_dir = strdup( env );
 	}
 
+	env = getenv_thread_save( "IO_MONITOR_PID" );
+	if ( env )
+	{
+		g_io_monitor_pid = atoi( env );
+	}
+
 	// register signal 
 	register_signal_handler( SIGSEGV, sigsegv_backtrace );
 
-	// record process
-	char report_file[BUFSIZ];
-	libc_sprintf( report_file, "%s/init.report", g_output_dir );
-	FILE *fout = fopen( report_file, "a" );
-	if ( !fout )
-	{
-		libc_fprintf( stderr, "[Error] fopen %s fail in %s -> %s\n", report_file, __func__, strerror(errno) );
-		__print_backtrace();
-	}
-	char cmd[BUFSIZ];
-	pid_t pid = syscall(SYS_getpid);
-	__get_proc_cmd( cmd, pid );
-	libc_fprintf( fout, "pid=%d cmd=%s\n", pid, cmd );
+	// record process information 
+	record_process_info ();
+}
 
-	fclose( fout );
+void __print_all_parent_cmd ( FILE *fout, pid_t pid_start, pid_t pid_end )
+{
+	
 }
 
 void __dump_data_to_report ( FILE *fout, const void *buf, size_t n_bytes )
@@ -376,8 +432,9 @@ void exit ( int exit_code )
 	}
 	char cmd[BUFSIZ];
 	pid_t pid = syscall(SYS_getpid);
+	pid_t ppid = syscall(SYS_getppid);
 	__get_proc_cmd( cmd, pid );
-	libc_fprintf( fout, "exit=%d pid=%d cmd=%s\n", exit_code, pid, cmd );
+	libc_fprintf( fout, "exit=%d pid=%d ppid=%d cmd=%s\n", exit_code, pid, ppid, cmd );
 	fclose( fout );
 
 	void (*libc_exit) (int) = (void (*) (int)) dlsym_rtld_next( "exit" );

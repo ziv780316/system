@@ -170,6 +170,12 @@ void set_options_in_env ()
 		fprintf( stderr, "[Error] setenv \"IO_MONITOR_REPORT_DIR\" fail -> %s\n", strerror(errno) );
 		abort();
 	}
+	sprintf( buf, "%d", getppid() );
+	if ( -1 == setenv( "IO_MONITOR_PID", buf, 1 ) ) // overwrite
+	{
+		fprintf( stderr, "[Error] setenv \"IO_MONITOR_PID\" fail -> %s\n", strerror(errno) );
+		abort();
+	}
 }
 
 void create_dir ( char *dir )
