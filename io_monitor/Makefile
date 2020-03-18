@@ -1,11 +1,13 @@
 .DEFAULT_GOAL=default 
 .PHONY=gen_lib_hex
+.PRECIOUS: %.so
 
 CC=gcc
 LIB=-static -lm 
-CFLAGS= -O0 -g -std=c99 -fPIC -lpthread
+BUILD_TYPE=-O0 -g
+CFLAGS= $(BUILD_TYPE) -std=c99 -fPIC -lpthread
 TARGET=io_monitor
-IO_MONITOR_OBJ=io_monitor.o opts.o
+IO_MONITOR_OBJ=io_monitor.o opts.o 
 IO_MONITOR_LIB=libio_read.so libio_write.so libio_both.so
 
 debug: BUILD_TYPE:=-g3 
@@ -20,17 +22,14 @@ test: main.c
 %.o: %.c %.h
 	$(CC) -c $< $(CFLAGS) -o $@ 
 
-libremove.so: remove.o misc.o
-	$(CC) $^ $(CFLAGS) -o $@ -shared -ldl
-
-io_both.o: io_write.o io_read.o
+io_both.o: io_write.o io_read.o 
 	$(CC) -c $(@:.o=.c) $(CFLAGS) -o $@ 
 
 libio_both.so: libio_read.so libio_write.so misc.o io_both.o 
 	$(CC) io_both.o misc.o $(CFLAGS) -o $@ -shared -ldl
 	xxd -i $@ > $(@:.so=.hex)
 
-lib%.so : %.o misc.o
+lib%.so : %.o misc.o 
 	$(CC) $^ $(CFLAGS) -o $@ -shared -ldl
 	xxd -i $@ > $(@:.so=.hex)
 

@@ -13,6 +13,7 @@ typedef struct
 	monitor_type_t monitor_type;
 	dump_type_t dump_type;
 
+	bool interactive_mode;
 	bool debug;
 } opt_t;
 

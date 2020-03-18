@@ -20,8 +20,35 @@ opt_t g_opts = {
 	.monitor_type = MONITOR_READ,
 	.dump_type = DUMP_ASCII,
 
+	.interactive_mode = false,
 	.debug = false,
 };
+
+void resolve_path_name ( char **path )
+{
+	// change to abs path
+	char *resolved_path = NULL;
+	char *buf = realpath( *path, resolved_path );
+	if ( NULL == resolved_path )
+	{
+		if ( NULL == buf )
+		{
+			fprintf( stderr, "[Error] cannot resolve path %s -> %s\n", *path, strerror(errno) );
+			exit(1);
+		}
+		else
+		{
+			// resolved path length > PATH_MAX
+			*path = buf;
+		}
+	}
+	else
+	{
+		free( *path );
+		*path = strdup( resolved_path );
+	}
+
+}
 
 void show_help ()
 {
@@ -34,6 +61,7 @@ void show_help ()
 		"  -o | --output_dir   =>  specify output log directory\n"
 		"  -t | --dump_type    =>  specify dump type\n"
 		"  -m | --monitor_type =>  specify monitor type\n"
+		"  -i | --interactive  =>  interactive mode\n"
 		"  -d | --debug        =>  debug\n"
 		"\n"
 		"* Support dump type:\n"
@@ -90,6 +118,7 @@ void parse_cmd_options ( int argc, char **argv )
 			{"output_dir", required_argument, 0, 'o'},
 			{"dump_type", required_argument, 0, 't'},
 			{"monitor_type", required_argument, 0, 'm'},
+			{"interactive", no_argument, 0, 'i'},
 			{"debug", no_argument, 0, 'd'},
 			{0, 0, 0, 0}
 		};
@@ -97,7 +126,7 @@ void parse_cmd_options ( int argc, char **argv )
 		// getopt_long stores the option index here
 		int option_index = 0;
 
-		c = getopt_long( argc, argv, "hc:o:t:m:d", long_options, &option_index );
+		c = getopt_long( argc, argv, "hc:o:t:m:di", long_options, &option_index );
 
 		// detect the end of the options
 		if ( -1 == c )
@@ -136,7 +165,7 @@ void parse_cmd_options ( int argc, char **argv )
 				else
 				{
 					fprintf( stderr, "[Error] unknown dump type %s\n", optarg );
-					abort();
+					exit(1);
 				}
 				break;
 
@@ -156,7 +185,7 @@ void parse_cmd_options ( int argc, char **argv )
 				else
 				{
 					fprintf( stderr, "[Error] unknown monitor type %s\n", optarg );
-					abort();
+					exit(1);
 				}
 				break;
 
@@ -164,12 +193,16 @@ void parse_cmd_options ( int argc, char **argv )
 				g_opts.debug = true;
 				break;
 
+			case 'i':
+				g_opts.interactive_mode = true;
+				break;
+
 			case '?':
 				// getopt_long already printed an error message 
 				break;
 
 			default:
-				abort ();
+				exit(1);
 				break;
 		}
 	}
@@ -189,16 +222,18 @@ void parse_cmd_options ( int argc, char **argv )
 	if ( !g_opts.cmd )
 	{
 		fprintf( stderr, "[Error] please specify monitor cmd by '-c <cmd>'\n" );
-		abort();
-	}
-	if ( !g_opts.monitor_type )
-	{
-		fprintf( stderr, "[Error] please specify monitor type by '-m <monitor type>'\n" );
-		abort();
+		exit(1);
 	}
 
+	g_monitor.cmd = strdup( g_opts.cmd );
+	g_monitor.result_dir = strdup( g_opts.output_dir );
 	g_monitor.dump_type = g_opts.dump_type;
 	g_monitor.monitor_type = g_opts.monitor_type;
 	g_monitor.debug = g_opts.debug;
+
+	if ( g_opts.interactive_mode )
+	{
+		g_monitor.monitor_type = MONITOR_BOTH;
+	}
 }
 

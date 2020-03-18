@@ -13,7 +13,7 @@
 
 ssize_t read ( int fd, void *buf, size_t n )
 {
-	__init_monitor ();
+	__link_libc_functions();
 
 	// get information from monitor 
 	ssize_t status;	

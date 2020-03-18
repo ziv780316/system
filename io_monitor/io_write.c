@@ -14,7 +14,11 @@
 
 ssize_t write ( int fd, const void *buf, size_t n )
 {
-	__init_monitor ();
+	__link_libc_functions();
+	if ( !(*g_ipc_monitor_flag & IO_MONITOR_IPC_MONITOR_WRITE) )
+	{
+		return libc_write( fd, buf, n );
+	}
 
 	ssize_t status;	
 	status = libc_write( fd, buf, n );
@@ -54,7 +58,11 @@ ssize_t write ( int fd, const void *buf, size_t n )
 
 size_t fwrite ( const void *buf, size_t size, size_t nmemb, FILE *stream )
 {
-	__init_monitor ();
+	__link_libc_functions();
+	if ( !(*g_ipc_monitor_flag & IO_MONITOR_IPC_MONITOR_WRITE) )
+	{
+		return libc_fwrite( buf, size, nmemb, stream );
+	}
 
 	ssize_t status;	
 	status = libc_fwrite( buf, size, nmemb, stream );
@@ -101,7 +109,11 @@ size_t fwrite ( const void *buf, size_t size, size_t nmemb, FILE *stream )
 
 int fflush ( FILE *stream )
 {
-	__init_monitor ();
+	__link_libc_functions();
+	if ( !(*g_ipc_monitor_flag & IO_MONITOR_IPC_MONITOR_WRITE) )
+	{
+		return libc_fflush( stream );
+	}
 
 	char *write_ptr = stream->_IO_write_ptr;
 	char *write_base = stream->_IO_write_base;
@@ -152,7 +164,11 @@ int fflush ( FILE *stream )
 
 int fputc ( int c, FILE *stream )
 {
-	__init_monitor ();
+	__link_libc_functions();
+	if ( !(*g_ipc_monitor_flag & IO_MONITOR_IPC_MONITOR_WRITE) )
+	{
+		return libc_fputc( c, stream );
+	}
 
 	int status = libc_fputc( c, stream );
 	int errno_store = errno;	
@@ -202,11 +218,16 @@ int fputc ( int c, FILE *stream )
 
 int printf ( const char *fmt, ... )
 {
-	__init_monitor ();
+	__link_libc_functions();
 
 	va_list va, va_origin;
 	va_start( va, fmt );
 	va_copy( va_origin , va );
+
+	if ( !(*g_ipc_monitor_flag & IO_MONITOR_IPC_MONITOR_WRITE) )
+	{
+		return libc_vprintf( fmt, va );
+	}
 
 	int status = libc_vprintf( fmt, va );
 	int errno_store = errno;	
@@ -252,11 +273,16 @@ int printf ( const char *fmt, ... )
 
 int fprintf ( FILE *stream, const char *fmt, ... )
 {
-	__init_monitor ();
+	__link_libc_functions();
 
 	va_list va, va_origin;
 	va_start( va, fmt );
 	va_copy( va_origin , va );
+
+	if ( !(*g_ipc_monitor_flag & IO_MONITOR_IPC_MONITOR_WRITE) )
+	{
+		return libc_vfprintf( stream, fmt, va );
+	}
 
 	int status = libc_vfprintf( stream, fmt, va );
 	int errno_store = errno;	
@@ -302,11 +328,16 @@ int fprintf ( FILE *stream, const char *fmt, ... )
 
 int sprintf ( char *buf, const char *fmt, ... )
 {
-	__init_monitor ();
+	__link_libc_functions();
 
 	va_list va, va_origin;
 	va_start( va, fmt );
 	va_copy( va_origin , va );
+
+	if ( !(*g_ipc_monitor_flag & IO_MONITOR_IPC_MONITOR_WRITE) )
+	{
+		return libc_vsprintf( buf, fmt, va );
+	}
 
 	int status = libc_vsprintf( buf, fmt, va );
 	int errno_store = errno;	
@@ -341,10 +372,15 @@ int sprintf ( char *buf, const char *fmt, ... )
 
 int vprintf ( const char *fmt, va_list va )
 {
-	__init_monitor ();
+	__link_libc_functions();
 
 	va_list va_origin;
 	va_copy( va_origin, va );
+
+	if ( !(*g_ipc_monitor_flag & IO_MONITOR_IPC_MONITOR_WRITE) )
+	{
+		return libc_vprintf( fmt, va );
+	}
 
 	int status = libc_vprintf( fmt, va );
 	int errno_store = errno;	
@@ -388,10 +424,15 @@ int vprintf ( const char *fmt, va_list va )
 
 int vsprintf ( char *buf, const char *fmt, va_list va )
 {
-	__init_monitor ();
+	__link_libc_functions();
 
 	va_list va_origin;
 	va_copy( va_origin, va );
+
+	if ( !(*g_ipc_monitor_flag & IO_MONITOR_IPC_MONITOR_WRITE) )
+	{
+		return libc_vsprintf( buf, fmt, va );
+	}
 
 	int status = libc_vsprintf( buf, fmt, va );
 	int errno_store = errno;	
@@ -424,10 +465,15 @@ int vsprintf ( char *buf, const char *fmt, va_list va )
 
 int vfprintf ( FILE *stream, const char *fmt, va_list va )
 {
-	__init_monitor ();
+	__link_libc_functions();
 
 	va_list va_origin;
 	va_copy( va_origin, va );
+
+	if ( !(*g_ipc_monitor_flag & IO_MONITOR_IPC_MONITOR_WRITE) )
+	{
+		return libc_vfprintf( stream, fmt, va );
+	}
 
 	int status = libc_vfprintf( stream, fmt, va );
 	int errno_store = errno;	

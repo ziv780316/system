@@ -4,8 +4,9 @@
 #include <stdarg.h>
 #include <stdio.h>
 #include <sys/types.h>
+#include "io_monitor.h"
 
-extern void __init_monitor ();
+extern void __link_libc_functions ();
 extern void __init_pid_info ( char *pid_info );
 extern FILE *__create_report_file ( char *type, char *exec, char *event_file );
 extern void __dump_data_to_report ( FILE *fout, const void *buf, size_t n_bytes );
@@ -29,6 +30,7 @@ extern int (*libc_vfprintf) (FILE *, const char*, va_list);
 extern void (*libc_exit) (int);
 extern void (*libc__exit) (int);
 
+extern int *g_ipc_monitor_flag;
 
 #endif
 
