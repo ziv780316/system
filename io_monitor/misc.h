@@ -21,6 +21,7 @@ extern ssize_t (*libc_write) (int , const void *, size_t);
 extern size_t (*libc_fwrite) (const void *, size_t, size_t, FILE *);
 extern int (*libc_fflush) (FILE *);
 extern int (*libc_fputc) (int, FILE *);
+extern int (*libc_fputs) (const char *, FILE *);
 extern int (*libc_printf) (const char*, ...);
 extern int (*libc_sprintf) (char *, const char*, ...);
 extern int (*libc_fprintf) (FILE *, const char*, ...);

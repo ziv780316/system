@@ -30,6 +30,7 @@ ssize_t (*libc_write) (int , const void *, size_t) = NULL;
 size_t (*libc_fwrite) (const void *, size_t, size_t, FILE *) = NULL;
 int (*libc_fflush) (FILE *) = NULL;
 int (*libc_fputc) (int, FILE *) = NULL;
+int (*libc_fputs) (const char *, FILE *) = NULL;
 int (*libc_printf) (const char*, ...) = NULL;
 int (*libc_fprintf) (FILE *, const char*, ...) = NULL;
 int (*libc_sprintf) (char *, const char*, ...) = NULL;
@@ -289,8 +290,58 @@ FILE *__create_report_file ( char *type, char *exec, char *event_file )
 // ==================================================
 // monitor setup
 // ==================================================
-static void init_monitor () 
+void __record_process_info ()
 {
+	// necessary in this stage for convenience
+	libc_sprintf = (int (*) (char *, const char *, ...)) dlsym_rtld_next( "sprintf" ); 
+	libc_fprintf = (int (*) (FILE*, const char *, ...)) dlsym_rtld_next( "fprintf" ); 
+
+	// record pid and command
+	pid_t pid = syscall( SYS_getpid );
+	pid_t ppid = syscall( SYS_getppid );
+	char exec_cmd[BUFSIZ];
+	char *exec_result;
+	char report_file[BUFSIZ];
+	libc_sprintf( report_file, "%s/init.report", g_output_dir );
+	FILE *fout = fopen_w_check( report_file, "a" );
+	if ( fout )
+	{
+		libc_sprintf( exec_cmd, "cat /proc/%d/cmdline | tr '\\0' ' '", pid );
+		run_shell_command_and_get_results( &exec_result, exec_cmd );
+		libc_fprintf( fout, "pid=%d ppid=%d cmd=%s", pid, ppid, exec_result );
+
+		libc_sprintf( exec_cmd, "cat /proc/%d/cmdline | tr '\\0' ' '", ppid );
+		run_shell_command_and_get_results( &exec_result, exec_cmd );
+		libc_fprintf( fout, " parent_cmd=%s\n", exec_result );
+
+		free( exec_result );
+		fclose( fout );
+	}
+
+	// backtrace process tree 
+	if ( *g_ipc_monitor_flag & IO_MONITOR_IPC_MONITOR_PSTREE )
+	{
+		libc_sprintf( exec_cmd, "pstree -apsnl %d >> %s/pstree.%d", pid, g_output_dir, pid );
+		run_shell_command( exec_cmd );
+	}
+
+	// dump process env
+	if ( *g_ipc_monitor_flag & IO_MONITOR_IPC_MONITOR_ENV )
+	{
+		libc_sprintf( exec_cmd, "cat /proc/%d/environ | tr '\\0' '\\n' > %s/environ.%d", pid, g_output_dir, pid );
+		run_shell_command( exec_cmd );
+	}
+}
+
+__attribute__((constructor))
+void __init_monitor ()
+{
+	if ( g_ipc_monitor_flag )
+	{
+		// already initialized
+		return;
+	}
+
 	// get io_monitor spec
 	char *env;
 	env = getenv_thread_save( "IO_MONITOR_DUMP_TYPE" );
@@ -335,44 +386,19 @@ static void init_monitor ()
 
 	// register signal 
 	register_signal_handler( SIGSEGV, sigsegv_backtrace );
-}
 
-__attribute__((constructor))
-void __record_process_info ()
-{
-	init_monitor();
-
-	// necessary in this stage for convenience
-	libc_sprintf = (int (*) (char *, const char *, ...)) dlsym_rtld_next( "sprintf" ); 
-	libc_fprintf = (int (*) (FILE*, const char *, ...)) dlsym_rtld_next( "fprintf" ); 
-
-	// record pid and command
-	pid_t pid = syscall( SYS_getpid );
-	pid_t ppid = syscall( SYS_getppid );
-	char exec_cmd[BUFSIZ];
-	char *exec_result;
-	char report_file[BUFSIZ];
-	libc_sprintf( report_file, "%s/init.report", g_output_dir );
-	FILE *fout = fopen_w_check( report_file, "a" );
-	if ( fout )
-	{
-		libc_sprintf( exec_cmd, "cat /proc/%d/cmdline | tr '\\0' ' '", pid );
-		run_shell_command_and_get_results( &exec_result, exec_cmd );
-		libc_fprintf( fout, "pid=%d ppid=%d cmd=%s\n", pid, ppid, exec_result );
-		fclose( fout );
-	}
-
-	// backtrace process tree 
-	if ( *g_ipc_monitor_flag & IO_MONITOR_IPC_MONITOR_PSTREE )
-	{
-		libc_sprintf( exec_cmd, "pstree -apsnl %d >> %s/pstree.%d", pid, g_output_dir, pid );
-		run_shell_command( exec_cmd );
-	}
+	__record_process_info();
 }
 
 void __link_libc_functions ()
 {
 	pthread_mutex_lock( &g_mutex );
+
+	if ( !g_ipc_monitor_flag  )
+	{
+		__init_monitor();
+	}
+
 	static bool initialized = false;
 	if ( !initialized )
 	{
@@ -387,6 +413,7 @@ void __link_libc_functions ()
 		libc_vsprintf = (int (*) (char *, const char *, va_list)) dlsym_rtld_next( "vsprintf" );
 		libc_fflush = (int (*) (FILE *)) dlsym_rtld_next( "fflush" );
 		libc_fputc = (int (*) (int, FILE *)) dlsym_rtld_next( "fputc" );
+		libc_fputs = (int (*) (const char *, FILE *)) dlsym_rtld_next( "fputs" );
 		libc_read = (ssize_t (*) (int , void *, size_t)) dlsym_rtld_next( "read" );
 		libc_write = (ssize_t (*) (int , const void *, size_t)) dlsym_rtld_next( "write" );
 		libc_fwrite = (size_t (*) (const void *, size_t, size_t, FILE *)) dlsym_rtld_next( "fwrite" );
@@ -494,12 +521,14 @@ void __get_proc_exec_name ( char *buf, pid_t pid )
 				if ( '-' != arg[0] ) 
 				{
 					strcpy( buf, arg );
+					fclose( fin );
 					return;
 				}
 				i += j + 1;
 			}
 
 			strcpy( buf, shell );
+			fclose( fin );
 			return;
 		}
 
@@ -577,7 +606,8 @@ void exit ( int exit_code )
 	libc_exit( exit_code );
 	__asm__( "hlt" ); // prevent exit fail
 }
-void _exit ( int exit_code )  
+
+void _exit ( int exit_code ) 
 {
 	__link_libc_functions();
 

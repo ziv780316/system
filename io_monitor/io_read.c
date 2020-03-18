@@ -15,6 +15,11 @@ ssize_t read ( int fd, void *buf, size_t n )
 {
 	__link_libc_functions();
 
+	if ( !(*g_ipc_monitor_flag & IO_MONITOR_IPC_MONITOR_READ) )
+	{
+		return libc_read( fd, buf, n );
+	}
+
 	// get information from monitor 
 	ssize_t status;	
 	status = libc_read( fd, buf, n );

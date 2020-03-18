@@ -15,6 +15,7 @@
 ssize_t write ( int fd, const void *buf, size_t n )
 {
 	__link_libc_functions();
+
 	if ( !(*g_ipc_monitor_flag & IO_MONITOR_IPC_MONITOR_WRITE) )
 	{
 		return libc_write( fd, buf, n );
@@ -35,23 +36,24 @@ ssize_t write ( int fd, const void *buf, size_t n )
 	__get_proc_exec_name( exec_name, pid );
 	FILE *fout = __create_report_file( "write", exec_name, file_name );
 
-	if ( -1 == status )
+	if ( fout )
 	{
-		libc_fprintf( fout, "[write] process=%s exec=%s write fd=%d file=\"%s\" status=fail error=\"%s\"\n", pid_info, exec_name, fd, file_name, strerror(errno_store) );
-	}
-	else
-	{
-		ssize_t n_write = status;
-		libc_fprintf( fout, "[write] process=%s exec=%s write fd=%d file=\"%s\" bytes=%ld status=ok\n", pid_info, exec_name, fd, file_name, n_write );
-		if ( n_write > 0 )
+		if ( -1 == status )
 		{
-			// non EOF
-			__dump_data_to_report ( fout, buf, n_write );
 		}
-	}
-	
-	fclose( fout );
+		else
+		{
+			ssize_t n_write = status;
+			libc_fprintf( fout, "[write] process=%s exec=%s write fd=%d file=\"%s\" bytes=%ld status=ok\n", pid_info, exec_name, fd, file_name, n_write );
+			if ( n_write > 0 )
+			{
+				// non EOF
+				__dump_data_to_report ( fout, buf, n_write );
+			}
+		}
 
+		fclose( fout );
+	}
 
 	return status;
 }
@@ -87,26 +89,29 @@ size_t fwrite ( const void *buf, size_t size, size_t nmemb, FILE *stream )
 	__get_proc_exec_name( exec_name, pid );
 	FILE *fout = __create_report_file( "fwrite", exec_name, file_name );
 
-	if ( 0 == status )
+	if ( fout )
 	{
-	}
-	else
-	{
-		ssize_t n_write = nmemb * size;
-		libc_fprintf( fout, "[fwrite] process=%s exec=%s fwrite fd=%d file=\"%s\" bytes=%ld status=ok\n", pid_info, exec_name, fd, file_name, n_write );
-		if ( n_write > 0 )
+		if ( 0 == status )
 		{
-			// non EOF
-			__dump_data_to_report ( fout, buf, n_write );
 		}
-	}
-	
-	fclose( fout );
+		else
+		{
+			ssize_t n_write = nmemb * size;
+			libc_fprintf( fout, "[fwrite] process=%s exec=%s fwrite fd=%d file=\"%s\" bytes=%ld status=ok\n", pid_info, exec_name, fd, file_name, n_write );
+			if ( n_write > 0 )
+			{
+				// non EOF
+				__dump_data_to_report ( fout, buf, n_write );
+			}
+		}
 
+		fclose( fout );
+	}
 
 	return status;
 }
 
+#ifdef IO_MONITOR_FFLUSH
 int fflush ( FILE *stream )
 {
 	__link_libc_functions();
@@ -158,9 +163,9 @@ int fflush ( FILE *stream )
 		fclose( fout );
 	}
 
-
 	return status;
 }
+#endif
 
 int fputc ( int c, FILE *stream )
 {
@@ -209,9 +214,63 @@ int fputc ( int c, FILE *stream )
 		{
 			libc_fputc( c, fout );
 		}
+
+		fclose( fout );
 	}
 
-	fclose( fout );
+	return status;
+}
+
+int fputs ( const char *s, FILE *stream )
+{
+	__link_libc_functions();
+	if ( !(*g_ipc_monitor_flag & IO_MONITOR_IPC_MONITOR_WRITE) )
+	{
+		return libc_fputs( s, stream );
+	}
+
+	int status = libc_fputs( s, stream );
+	int errno_store = errno;	
+
+	// show information that monitor file write by which process
+	char pid_info[BUFSIZ];
+	__init_pid_info( pid_info );
+
+	int fd = fileno( stream );
+
+	if ( -1 == fd )
+	{
+		libc_fprintf( stderr, "[Error] fileno fail in %s -> %s\n", __func__, strerror(errno) );
+		__print_backtrace();
+	}
+
+	pid_t pid = syscall( SYS_getpid ); 
+	char file_name[BUFSIZ];
+	char exec_name[BUFSIZ];
+	if ( -1 == fd )
+	{
+		strcpy( file_name, "?" );
+	}
+	else
+	{
+		__get_proc_fd_name( file_name, pid, fd );
+	}
+	__get_proc_exec_name( exec_name, pid );
+	FILE *fout = __create_report_file( "fputs", exec_name, file_name );
+
+	if ( fout )
+	{
+		if ( EOF == status )
+		{
+			// error
+		}
+		else
+		{
+			libc_fputs( s, fout );
+		}
+
+		fclose( fout );
+	}
 
 	return status;
 }
@@ -262,11 +321,11 @@ int printf ( const char *fmt, ... )
 		{
 			libc_vfprintf( fout, fmt, va_origin );
 		}
+
+		fclose( fout );
 	}
 
 	va_end( va );
-
-	fclose( fout );
 
 	return status;
 }
@@ -317,11 +376,11 @@ int fprintf ( FILE *stream, const char *fmt, ... )
 		{
 			libc_vfprintf( fout, fmt, va_origin );
 		}
+
+		fclose( fout );
 	}
 
 	va_end( va );
-
-	fclose( fout );
 
 	return status;
 }
@@ -361,11 +420,11 @@ int sprintf ( char *buf, const char *fmt, ... )
 		{
 			libc_vfprintf( fout, fmt, va_origin );
 		}
+
+		fclose( fout );
 	}
 
 	va_end( va );
-
-	fclose( fout );
 
 	return status;
 }
@@ -415,9 +474,9 @@ int vprintf ( const char *fmt, va_list va )
 		{
 			libc_vfprintf( fout, fmt, va_origin );
 		}
-	}
 
-	fclose( fout );
+		fclose( fout );
+	}
 
 	return status;
 }
@@ -456,9 +515,9 @@ int vsprintf ( char *buf, const char *fmt, va_list va )
 		{
 			libc_vfprintf( fout, fmt, va_origin );
 		}
-	}
 
-	fclose( fout );
+		fclose( fout );
+	}
 
 	return status;
 }
@@ -508,9 +567,9 @@ int vfprintf ( FILE *stream, const char *fmt, va_list va )
 		{
 			libc_vfprintf( fout, fmt, va_origin );
 		}
-	}
 
-	fclose( fout );
+		fclose( fout );
+	}
 
 	return status;
 }

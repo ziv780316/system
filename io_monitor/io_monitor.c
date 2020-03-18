@@ -90,12 +90,13 @@ sighandler_t register_signal_handler ( int signum, void (*fp) (int) )
 void io_monitor_sigchild ( int signum )
 {
 	printf( "Child pid=%d terminated\n", g_monitor.child_pid );
-	exit(0);
+	exit(0); // call atexit flow
 }
 
 void register_monitor_signal_handlers()
 {
 	register_signal_handler( SIGCHLD, io_monitor_sigchild ); // child terminated
+	register_signal_handler( SIGINT, exit ); 
 }
 
 void signal_do_nothing ( int signum )
@@ -313,19 +314,16 @@ int main ( int argc, char **argv )
 		create_ipc_shm();
 
 		// get user setting
-		if ( g_opts.interactive_mode )
-		{
-			io_monitor_user_interaction();
-		}
-		else
-		{
-			*(g_monitor.ipc_monitor_flag) = IO_MONITOR_IPC_MONITOR_READ | IO_MONITOR_IPC_MONITOR_WRITE;
-		}
-
 		int status;
 		pid_t pid;
 		if ( 0 == (pid = fork()) )
 		{
+			// polling wait parent 
+			while ( IO_MONITOR_IPC_MONITOR_UNINIT == *(g_monitor.ipc_monitor_flag) )
+			{
+				usleep(10000);
+			}
+
 			// set LD_PRELOAD
 			set_ld_preload_lib();
 
@@ -346,8 +344,9 @@ int main ( int argc, char **argv )
 			// parent
 			g_monitor.child_pid = pid;
 
-			register_monitor_signal_handlers();
+			// exit and signal handler
 			register_monitor_atext_works();
+			register_monitor_signal_handlers();
 
 			printf( "* Monitor information:\n" );
 			printf( "--------------------------\n" );
@@ -367,6 +366,7 @@ int main ( int argc, char **argv )
 			}
 			else
 			{
+				*(g_monitor.ipc_monitor_flag) = IO_MONITOR_IPC_MONITOR_READ | IO_MONITOR_IPC_MONITOR_WRITE;
 				if ( -1 != waitpid( g_monitor.child_pid, &status, 0 ) )
 				{
 					printf( "Child pid=%d terminated with status=%d\n", g_monitor.child_pid, status );
