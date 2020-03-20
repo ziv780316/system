@@ -23,7 +23,7 @@ static int g_dump_type = DUMP_NONE;
 static char *g_output_dir = NULL;
 static pid_t g_io_monitor_pid = 1;
 static int g_io_monitor_shm_id;
-int *g_ipc_monitor_flag = NULL;
+unsigned int *g_ipc_monitor_flag = NULL;
 
 ssize_t (*libc_read) (int , void *, size_t) = NULL;
 ssize_t (*libc_write) (int , const void *, size_t) = NULL;
@@ -157,7 +157,7 @@ static void run_shell_command_and_get_results ( char **output_str, const char *c
 
 	if ( 0 == (pid = fork()) )
 	{
-		unsetenv( "LD_PRELOAD" ); // XXX cannot unset in some environment
+		unsetenv( "LD_PRELOAD" ); 
 
 		close( fd[0] );
 		if( -1 == dup2( fd[1], STDOUT_FILENO ) )
@@ -167,7 +167,7 @@ static void run_shell_command_and_get_results ( char **output_str, const char *c
 		}
 
 		// child execute with sh has patter expasion (i.e. *)
-		execle( "/bin/sh", "sh", "-c", (const char *)cmd, (char *) NULL, (char *) NULL );
+		execlp( "/bin/sh", "sh", "-c", (const char *)cmd, (char *) NULL );
 
 		// exec return only in fail
 		libc_fprintf( stderr, "[Error] run_shell_command %s fail -> %s\n", cmd, strerror(errno) );
@@ -220,10 +220,10 @@ static void run_shell_command ( const char *cmd )
 	pid_t pid;
 	if ( 0 == (pid = fork()) )
 	{
-		unsetenv( "LD_PRELOAD" ); // XXX cannot unset in some environment
+		unsetenv( "LD_PRELOAD" ); 
 
 		// child execute with sh has patter expasion (i.e. *)
-		execle( "/bin/sh", "sh", "-c", (const char *)cmd, (char *) NULL, (char *) NULL );
+		execlp( "/bin/sh", "sh", "-c", (const char *)cmd, (char *) NULL );
 
 		// exec return only in fail
 		libc_fprintf( stderr, "[Error] run_shell_command %s fail -> %s\n", cmd, strerror(errno) );
@@ -377,7 +377,7 @@ void __init_monitor ()
 	}
 
 	// get real time control share memory
-	g_ipc_monitor_flag = shmat( g_io_monitor_shm_id, NULL, 0 );
+	g_ipc_monitor_flag = (unsigned int *) shmat( g_io_monitor_shm_id, NULL, 0 );
 	if ( !g_ipc_monitor_flag )
 	{
 		fprintf( stderr, "[Error] shmat get data fail -> %s\n", strerror(errno) );

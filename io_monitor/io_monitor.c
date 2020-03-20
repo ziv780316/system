@@ -132,6 +132,31 @@ void create_tmp_so_file ( int *tmpfile_fd, char **ptmpfile_name )
 	*tmpfile_fd = fd;
 }
 
+void resolve_path_name ( char **path )
+{
+	// change to abs path
+	char *resolved_path = NULL;
+	char *buf = realpath( *path, resolved_path );
+	if ( NULL == resolved_path )
+	{
+		if ( NULL == buf )
+		{
+			fprintf( stderr, "[Error] cannot resolve path %s -> %s\n", *path, strerror(errno) );
+			exit(1);
+		}
+		else
+		{
+			// resolved path length > PATH_MAX
+			*path = buf;
+		}
+	}
+	else
+	{
+		free( *path );
+		*path = strdup( resolved_path );
+	}
+
+}
 
 void dump_pre_compile_lib ()
 {
@@ -242,7 +267,7 @@ void create_dir ( char *dir )
 void io_monitor_user_interaction ()
 {
 	char user_key[BUFSIZ];
-	printf( "off(o) read(r) write(w) pstree(p) env(e) all(a) kill(k)\n" );
+	printf( "stop(s) off(o) read(r) write(w) pstree(p) env(e) all(a) kill(k)\n" );
 	printf( "input monitor command: " );
 	scanf( "%s", user_key );
 
@@ -252,6 +277,10 @@ void io_monitor_user_interaction ()
 		key = user_key[i];
 		switch ( key )
 		{
+			case IO_MONITOR_USER_KEY_MONITOR_STOP:
+				*(g_monitor.ipc_monitor_flag) = IO_MONITOR_IPC_MONITOR_STOP;
+				break;
+
 			case IO_MONITOR_USER_KEY_MONITOR_OFF:
 				*(g_monitor.ipc_monitor_flag) = IO_MONITOR_IPC_MONITOR_OFF;
 				break;
@@ -309,6 +338,7 @@ int main ( int argc, char **argv )
 
 		// create directory to collect report
 		create_dir( g_monitor.result_dir );
+		resolve_path_name( &(g_monitor.result_dir) );
 
 		// create share memory for IPC
 		create_ipc_shm();

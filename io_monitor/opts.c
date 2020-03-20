@@ -24,32 +24,6 @@ opt_t g_opts = {
 	.debug = false,
 };
 
-void resolve_path_name ( char **path )
-{
-	// change to abs path
-	char *resolved_path = NULL;
-	char *buf = realpath( *path, resolved_path );
-	if ( NULL == resolved_path )
-	{
-		if ( NULL == buf )
-		{
-			fprintf( stderr, "[Error] cannot resolve path %s -> %s\n", *path, strerror(errno) );
-			exit(1);
-		}
-		else
-		{
-			// resolved path length > PATH_MAX
-			*path = buf;
-		}
-	}
-	else
-	{
-		free( *path );
-		*path = strdup( resolved_path );
-	}
-
-}
-
 void show_help ()
 {
 	printf( "*------------------------------------*\n" 

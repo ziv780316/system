@@ -31,7 +31,7 @@ extern int (*libc_vfprintf) (FILE *, const char*, va_list);
 extern void (*libc_exit) (int);
 extern void (*libc__exit) (int);
 
-extern int *g_ipc_monitor_flag;
+extern unsigned int *g_ipc_monitor_flag;
 
 #endif
 
