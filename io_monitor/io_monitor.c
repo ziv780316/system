@@ -209,7 +209,7 @@ void create_ipc_shm ()
 	}
 	g_monitor.shm_id = shm_id;
 
-	g_monitor.ipc_monitor_flag = shmat( shm_id, NULL, 0 );
+	g_monitor.ipc_monitor_flag = (unsigned int *)shmat( shm_id, NULL, 0 );
 	if ( !g_monitor.ipc_monitor_flag )
 	{
 		fprintf( stderr, "[Error] shmat get data fail -> %s\n", strerror(errno) );
@@ -342,6 +342,7 @@ int main ( int argc, char **argv )
 
 		// create share memory for IPC
 		create_ipc_shm();
+		*(g_monitor.ipc_monitor_flag) = IO_MONITOR_IPC_MONITOR_UNINIT;
 
 		// get user setting
 		int status;
