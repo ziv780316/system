@@ -15,21 +15,21 @@
 ssize_t write ( int fd, const void *buf, size_t n )
 {
 	__link_libc_functions();
-
-	if ( !(*g_ipc_monitor_flag & IO_MONITOR_IPC_MONITOR_WRITE) )
-	{
-		return libc_write( fd, buf, n );
-	}
+	__sync_ipc();
 
 	ssize_t status;	
 	status = libc_write( fd, buf, n );
 	int errno_store = errno;	
+	if ( !(*g_ipc_monitor_flag & IO_MONITOR_IPC_MONITOR_WRITE) )
+	{
+		return status;
+	}
 
 	// show information that monitor file write by which process
 	char pid_info[BUFSIZ];
 	__init_pid_info( pid_info );
 
-	pid_t pid = syscall( SYS_getpid ); 
+	pid_t pid = getpid(); 
 	char file_name[BUFSIZ];
 	char exec_name[BUFSIZ];
 	__get_proc_fd_name( file_name, pid, fd );
@@ -61,14 +61,15 @@ ssize_t write ( int fd, const void *buf, size_t n )
 size_t fwrite ( const void *buf, size_t size, size_t nmemb, FILE *stream )
 {
 	__link_libc_functions();
-	if ( !(*g_ipc_monitor_flag & IO_MONITOR_IPC_MONITOR_WRITE) )
-	{
-		return libc_fwrite( buf, size, nmemb, stream );
-	}
+	__sync_ipc();
 
 	ssize_t status;	
 	status = libc_fwrite( buf, size, nmemb, stream );
 	int errno_store = errno;	
+	if ( !(*g_ipc_monitor_flag & IO_MONITOR_IPC_MONITOR_WRITE) )
+	{
+		return status;
+	}
 
 	// show information that monitor file write by which process
 	char pid_info[BUFSIZ];
@@ -82,7 +83,7 @@ size_t fwrite ( const void *buf, size_t size, size_t nmemb, FILE *stream )
 		__print_backtrace();
 	}
 
-	pid_t pid = syscall( SYS_getpid ); 
+	pid_t pid = getpid(); 
 	char file_name[BUFSIZ];
 	char exec_name[BUFSIZ];
 	__get_proc_fd_name( file_name, pid, fd );
@@ -115,16 +116,17 @@ size_t fwrite ( const void *buf, size_t size, size_t nmemb, FILE *stream )
 int fflush ( FILE *stream )
 {
 	__link_libc_functions();
-	if ( !(*g_ipc_monitor_flag & IO_MONITOR_IPC_MONITOR_WRITE) )
-	{
-		return libc_fflush( stream );
-	}
+	__sync_ipc();
 
 	char *write_ptr = stream->_IO_write_ptr;
 	char *write_base = stream->_IO_write_base;
 
 	int status = libc_fflush( stream );
 	int errno_store = errno;	
+	if ( !(*g_ipc_monitor_flag & IO_MONITOR_IPC_MONITOR_WRITE) )
+	{
+		return status;
+	}
 
 	// show information that monitor file write by which process
 	char pid_info[BUFSIZ];
@@ -138,7 +140,7 @@ int fflush ( FILE *stream )
 		return status;
 	}
 
-	pid_t pid = syscall( SYS_getpid ); 
+	pid_t pid = getpid(); 
 	char file_name[BUFSIZ];
 	char exec_name[BUFSIZ];
 	__get_proc_fd_name( file_name, pid, fd );
@@ -170,13 +172,14 @@ int fflush ( FILE *stream )
 int fputc ( int c, FILE *stream )
 {
 	__link_libc_functions();
-	if ( !(*g_ipc_monitor_flag & IO_MONITOR_IPC_MONITOR_WRITE) )
-	{
-		return libc_fputc( c, stream );
-	}
+	__sync_ipc();
 
 	int status = libc_fputc( c, stream );
 	int errno_store = errno;	
+	if ( !(*g_ipc_monitor_flag & IO_MONITOR_IPC_MONITOR_WRITE) )
+	{
+		return status;
+	}
 
 	// show information that monitor file write by which process
 	char pid_info[BUFSIZ];
@@ -190,7 +193,7 @@ int fputc ( int c, FILE *stream )
 		__print_backtrace();
 	}
 
-	pid_t pid = syscall( SYS_getpid ); 
+	pid_t pid = getpid(); 
 	char file_name[BUFSIZ];
 	char exec_name[BUFSIZ];
 	if ( -1 == fd )
@@ -224,13 +227,14 @@ int fputc ( int c, FILE *stream )
 int fputs ( const char *s, FILE *stream )
 {
 	__link_libc_functions();
-	if ( !(*g_ipc_monitor_flag & IO_MONITOR_IPC_MONITOR_WRITE) )
-	{
-		return libc_fputs( s, stream );
-	}
+	__sync_ipc();
 
 	int status = libc_fputs( s, stream );
 	int errno_store = errno;	
+	if ( !(*g_ipc_monitor_flag & IO_MONITOR_IPC_MONITOR_WRITE) )
+	{
+		return status;
+	}
 
 	// show information that monitor file write by which process
 	char pid_info[BUFSIZ];
@@ -244,7 +248,7 @@ int fputs ( const char *s, FILE *stream )
 		__print_backtrace();
 	}
 
-	pid_t pid = syscall( SYS_getpid ); 
+	pid_t pid = getpid(); 
 	char file_name[BUFSIZ];
 	char exec_name[BUFSIZ];
 	if ( -1 == fd )
@@ -278,18 +282,18 @@ int fputs ( const char *s, FILE *stream )
 int printf ( const char *fmt, ... )
 {
 	__link_libc_functions();
+	__sync_ipc();
 
 	va_list va, va_origin;
 	va_start( va, fmt );
 	va_copy( va_origin , va );
 
-	if ( !(*g_ipc_monitor_flag & IO_MONITOR_IPC_MONITOR_WRITE) )
-	{
-		return libc_vprintf( fmt, va );
-	}
-
 	int status = libc_vprintf( fmt, va );
 	int errno_store = errno;	
+	if ( !(*g_ipc_monitor_flag & IO_MONITOR_IPC_MONITOR_WRITE) )
+	{
+		return status;
+	}
 
 	// show information that monitor file write by which process
 	char pid_info[BUFSIZ];
@@ -304,7 +308,7 @@ int printf ( const char *fmt, ... )
 		return status;
 	}
 
-	pid_t pid = syscall( SYS_getpid ); 
+	pid_t pid = getpid(); 
 	char file_name[BUFSIZ];
 	char exec_name[BUFSIZ];
 	__get_proc_fd_name( file_name, pid, fd );
@@ -333,25 +337,24 @@ int printf ( const char *fmt, ... )
 int fprintf ( FILE *stream, const char *fmt, ... )
 {
 	__link_libc_functions();
+	__sync_ipc();
 
 	va_list va, va_origin;
 	va_start( va, fmt );
 	va_copy( va_origin , va );
 
-	if ( !(*g_ipc_monitor_flag & IO_MONITOR_IPC_MONITOR_WRITE) )
-	{
-		return libc_vfprintf( stream, fmt, va );
-	}
-
 	int status = libc_vfprintf( stream, fmt, va );
 	int errno_store = errno;	
+	if ( !(*g_ipc_monitor_flag & IO_MONITOR_IPC_MONITOR_WRITE) )
+	{
+		return status;
+	}
 
 	// show information that monitor file write by which process
 	char pid_info[BUFSIZ];
 	__init_pid_info( pid_info );
 
 	int fd = fileno( stream );
-
 	if ( -1 == fd )
 	{
 		libc_fprintf( stderr, "[Error] fileno fail in %s -> %s\n", __func__, strerror(errno) );
@@ -359,7 +362,7 @@ int fprintf ( FILE *stream, const char *fmt, ... )
 		return status;
 	}
 
-	pid_t pid = syscall( SYS_getpid ); 
+	pid_t pid = getpid(); 
 	char file_name[BUFSIZ];
 	char exec_name[BUFSIZ];
 	__get_proc_fd_name( file_name, pid, fd );
@@ -388,24 +391,24 @@ int fprintf ( FILE *stream, const char *fmt, ... )
 int sprintf ( char *buf, const char *fmt, ... )
 {
 	__link_libc_functions();
+	__sync_ipc();
 
 	va_list va, va_origin;
 	va_start( va, fmt );
 	va_copy( va_origin , va );
 
-	if ( !(*g_ipc_monitor_flag & IO_MONITOR_IPC_MONITOR_WRITE) )
-	{
-		return libc_vsprintf( buf, fmt, va );
-	}
-
 	int status = libc_vsprintf( buf, fmt, va );
 	int errno_store = errno;	
+	if ( !(*g_ipc_monitor_flag & IO_MONITOR_IPC_MONITOR_WRITE) )
+	{
+		return status;
+	}
 
 	// show information that monitor file write by which process
 	char pid_info[BUFSIZ];
 	__init_pid_info( pid_info );
 
-	pid_t pid = syscall( SYS_getpid ); 
+	pid_t pid = getpid(); 
 	char exec_name[BUFSIZ];
 	__get_proc_exec_name( exec_name, pid );
 	FILE *fout = __create_report_file( "sprintf", exec_name, "buf" );
@@ -432,17 +435,17 @@ int sprintf ( char *buf, const char *fmt, ... )
 int vprintf ( const char *fmt, va_list va )
 {
 	__link_libc_functions();
+	__sync_ipc();
 
 	va_list va_origin;
 	va_copy( va_origin, va );
 
-	if ( !(*g_ipc_monitor_flag & IO_MONITOR_IPC_MONITOR_WRITE) )
-	{
-		return libc_vprintf( fmt, va );
-	}
-
 	int status = libc_vprintf( fmt, va );
 	int errno_store = errno;	
+	if ( !(*g_ipc_monitor_flag & IO_MONITOR_IPC_MONITOR_WRITE) )
+	{
+		return status;
+	}
 
 	// show information that monitor file write by which process
 	char pid_info[BUFSIZ];
@@ -457,7 +460,7 @@ int vprintf ( const char *fmt, va_list va )
 		return status;
 	}
 
-	pid_t pid = syscall( SYS_getpid ); 
+	pid_t pid = getpid(); 
 	char file_name[BUFSIZ];
 	char exec_name[BUFSIZ];
 	__get_proc_fd_name( file_name, pid, fd );
@@ -484,23 +487,23 @@ int vprintf ( const char *fmt, va_list va )
 int vsprintf ( char *buf, const char *fmt, va_list va )
 {
 	__link_libc_functions();
+	__sync_ipc();
 
 	va_list va_origin;
 	va_copy( va_origin, va );
 
-	if ( !(*g_ipc_monitor_flag & IO_MONITOR_IPC_MONITOR_WRITE) )
-	{
-		return libc_vsprintf( buf, fmt, va );
-	}
-
 	int status = libc_vsprintf( buf, fmt, va );
 	int errno_store = errno;	
+	if ( !(*g_ipc_monitor_flag & IO_MONITOR_IPC_MONITOR_WRITE) )
+	{
+		return status;
+	}
 
 	// show information that monitor file write by which process
 	char pid_info[BUFSIZ];
 	__init_pid_info( pid_info );
 
-	pid_t pid = syscall( SYS_getpid ); 
+	pid_t pid = getpid(); 
 	char exec_name[BUFSIZ];
 	 __get_proc_exec_name( exec_name, pid );
 	FILE *fout = __create_report_file( "vsprintf", exec_name, "buf" );
@@ -525,17 +528,17 @@ int vsprintf ( char *buf, const char *fmt, va_list va )
 int vfprintf ( FILE *stream, const char *fmt, va_list va )
 {
 	__link_libc_functions();
+	__sync_ipc();
 
 	va_list va_origin;
 	va_copy( va_origin, va );
 
-	if ( !(*g_ipc_monitor_flag & IO_MONITOR_IPC_MONITOR_WRITE) )
-	{
-		return libc_vfprintf( stream, fmt, va );
-	}
-
 	int status = libc_vfprintf( stream, fmt, va );
 	int errno_store = errno;	
+	if ( !(*g_ipc_monitor_flag & IO_MONITOR_IPC_MONITOR_WRITE) )
+	{
+		return status;
+	}
 
 	// show information that monitor file write by which process
 	char pid_info[BUFSIZ];
@@ -550,7 +553,7 @@ int vfprintf ( FILE *stream, const char *fmt, va_list va )
 		return status;
 	}
 
-	pid_t pid = syscall( SYS_getpid ); 
+	pid_t pid = getpid(); 
 	char file_name[BUFSIZ];
 	char exec_name[BUFSIZ];
 	__get_proc_fd_name( file_name, pid, fd );

@@ -8,10 +8,10 @@
 #include <sys/syscall.h>
 #include <sys/wait.h>
 #include <sys/stat.h>
+#include <sys/types.h>
 #include <fcntl.h>
 #include <signal.h>
 #include <execinfo.h>
-#include <gnu/libc-version.h>
 #include <sys/shm.h>
 
 #include "io_monitor.h"
@@ -112,8 +112,7 @@ void create_tmp_so_file ( int *tmpfile_fd, char **ptmpfile_name )
 {
 	char *tmpfile_name = (char *) calloc( BUFSIZ, sizeof(char) );
 	sprintf( tmpfile_name, "/tmp/.libXXXXXX" );
-	mkstemp( tmpfile_name );
-	if ( NULL == tmpfile_name )
+	if ( NULL == mktemp( tmpfile_name ) )
 	{
 		fprintf( stderr, "[error] create tmpfile name fail -> %s\n", strerror(errno) );
 		exit(1);
@@ -266,9 +265,36 @@ void create_dir ( char *dir )
 
 void io_monitor_user_interaction ()
 {
+	int cnt = 0;
+	char current_key[BUFSIZ] = {0};
+	if ( *(g_monitor.ipc_monitor_flag) & IO_MONITOR_IPC_MONITOR_STOP )
+	{
+		current_key[cnt++] = IO_MONITOR_USER_KEY_MONITOR_STOP;
+	}
+	if ( *(g_monitor.ipc_monitor_flag) & IO_MONITOR_IPC_MONITOR_OFF )
+	{
+		current_key[cnt++] = IO_MONITOR_USER_KEY_MONITOR_OFF;
+	}
+	if ( *(g_monitor.ipc_monitor_flag) & IO_MONITOR_IPC_MONITOR_READ )
+	{
+		current_key[cnt++] = IO_MONITOR_USER_KEY_MONITOR_READ;
+	}
+	if ( *(g_monitor.ipc_monitor_flag) & IO_MONITOR_IPC_MONITOR_WRITE )
+	{
+		current_key[cnt++] = IO_MONITOR_USER_KEY_MONITOR_WRITE;
+	}
+	if ( *(g_monitor.ipc_monitor_flag) & IO_MONITOR_IPC_MONITOR_PSTREE )
+	{
+		current_key[cnt++] = IO_MONITOR_USER_KEY_MONITOR_PSTREE;
+	}
+	if ( *(g_monitor.ipc_monitor_flag) & IO_MONITOR_IPC_MONITOR_ENV )
+	{
+		current_key[cnt++] = IO_MONITOR_USER_KEY_MONITOR_ENV;
+	}
+
 	char user_key[BUFSIZ];
 	printf( "stop(s) off(o) read(r) write(w) pstree(p) env(e) all(a) kill(k)\n" );
-	printf( "input monitor command: " );
+	printf( "input monitor command (current=%s): ", current_key );
 	scanf( "%s", user_key );
 
 	int key;
@@ -381,7 +407,6 @@ int main ( int argc, char **argv )
 
 			printf( "* Monitor information:\n" );
 			printf( "--------------------------\n" );
-			printf( "libc version = %s\n", gnu_get_libc_version() );
 			printf( "monitor cmd  = %s\n", g_monitor.cmd );
 			printf( "tmp so path  = %s\n", g_monitor.tmp_so_name );
 			printf( "report dir   = %s\n", g_monitor.result_dir );

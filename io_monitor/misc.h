@@ -6,6 +6,7 @@
 #include <sys/types.h>
 #include "io_monitor.h"
 
+extern void __sync_ipc ();
 extern void __link_libc_functions ();
 extern void __init_pid_info ( char *pid_info );
 extern FILE *__create_report_file ( char *type, char *exec, char *event_file );
@@ -19,6 +20,7 @@ extern void __print_backtrace ();
 extern ssize_t (*libc_read) (int , void *, size_t);
 extern ssize_t (*libc_write) (int , const void *, size_t);
 extern size_t (*libc_fwrite) (const void *, size_t, size_t, FILE *);
+extern size_t (*libc_fread) (const void *, size_t, size_t, FILE *);
 extern int (*libc_fflush) (FILE *);
 extern int (*libc_fputc) (int, FILE *);
 extern int (*libc_fputs) (const char *, FILE *);

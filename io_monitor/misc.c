@@ -4,6 +4,7 @@
 #include <stdbool.h>
 #include <stdlib.h>
 #include <sys/types.h>
+#include <sys/stat.h>
 #include <unistd.h>
 #include <sys/syscall.h>
 #include <dlfcn.h>
@@ -21,13 +22,14 @@ pthread_mutex_t g_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 static int g_dump_type = DUMP_NONE;
 static char *g_output_dir = NULL;
-static pid_t g_io_monitor_pid = 1;
+static pid_t g_io_monitor_pid = -1;
 static int g_io_monitor_shm_id;
 unsigned int *g_ipc_monitor_flag = NULL;
 
 ssize_t (*libc_read) (int , void *, size_t) = NULL;
 ssize_t (*libc_write) (int , const void *, size_t) = NULL;
 size_t (*libc_fwrite) (const void *, size_t, size_t, FILE *) = NULL;
+size_t (*libc_fread) (const void *, size_t, size_t, FILE *) = NULL;
 int (*libc_fflush) (FILE *) = NULL;
 int (*libc_fputc) (int, FILE *) = NULL;
 int (*libc_fputs) (const char *, FILE *) = NULL;
@@ -39,6 +41,15 @@ int (*libc_vsprintf) (char *, const char*, va_list) = NULL;
 int (*libc_vfprintf) (FILE *, const char*, va_list) = NULL;
 void (*libc_exit) (int) = NULL;
 void (*libc__exit) (int) = NULL;
+
+static void create_dir ( char *dir )
+{
+	if( (-1 == mkdir( dir, S_IRWXU )) && (EEXIST != errno) )
+	{
+		fprintf( stderr, "[Error] create directory \"%s\" fail -> %s\n", dir, strerror(errno) );
+		exit(1);
+	}
+}
 
 static FILE *fopen_w_check ( const char *name, const char *mode )
 {
@@ -344,6 +355,12 @@ void __init_monitor ()
 
 	// get io_monitor spec
 	char *env;
+	env = getenv_thread_save( "IO_MONITOR_SHM_ID" );
+	if ( env )
+	{
+		g_io_monitor_shm_id = atoi( env );
+	}
+
 	env = getenv_thread_save( "IO_MONITOR_DUMP_TYPE" );
 	if ( !env )
 	{
@@ -370,18 +387,21 @@ void __init_monitor ()
 		g_io_monitor_pid = atoi( env );
 	}
 
-	env = getenv_thread_save( "IO_MONITOR_SHM_ID" );
-	if ( env )
-	{
-		g_io_monitor_shm_id = atoi( env );
-	}
-
 	// get real time control share memory
-	g_ipc_monitor_flag = (unsigned int *) shmat( g_io_monitor_shm_id, NULL, 0 );
-	if ( !g_ipc_monitor_flag )
+	if ( -1 == g_io_monitor_pid )
 	{
-		fprintf( stderr, "[Error] shmat get data fail -> %s\n", strerror(errno) );
-		exit(1);
+		// unit test flow
+		g_ipc_monitor_flag = (unsigned int *) malloc ( sizeof(unsigned int) );
+		*g_ipc_monitor_flag = IO_MONITOR_IPC_MONITOR_READ | IO_MONITOR_IPC_MONITOR_WRITE;
+	}
+	else
+	{
+		g_ipc_monitor_flag = (unsigned int *) shmat( g_io_monitor_shm_id, NULL, 0 );
+		if ( !g_ipc_monitor_flag )
+		{
+			libc_fprintf( stderr, "[Error] shmat get data fail -> %s\n", strerror(errno) );
+			exit(1);
+		}
 	}
 
 	// register signal 
@@ -390,19 +410,24 @@ void __init_monitor ()
 	__record_process_info();
 }
 
+void __sync_ipc ()
+{
+	while( *g_ipc_monitor_flag == IO_MONITOR_IPC_MONITOR_STOP )
+	{
+		usleep( 100000 );
+	}
+}
+
 void __link_libc_functions ()
 {
 	pthread_mutex_lock( &g_mutex );
-
-	if ( !g_ipc_monitor_flag  )
-	{
-		__init_monitor();
-	}
 
 	static bool initialized = false;
 	if ( !initialized )
 	{
 		initialized = true;
+
+		__init_monitor();
 
 		// bind origin libc function
 		libc_fprintf = (int (*) (FILE *, const char *, ...)) dlsym_rtld_next( "fprintf" );
@@ -417,6 +442,7 @@ void __link_libc_functions ()
 		libc_read = (ssize_t (*) (int , void *, size_t)) dlsym_rtld_next( "read" );
 		libc_write = (ssize_t (*) (int , const void *, size_t)) dlsym_rtld_next( "write" );
 		libc_fwrite = (size_t (*) (const void *, size_t, size_t, FILE *)) dlsym_rtld_next( "fwrite" );
+		libc_fread = (size_t (*) (const void *, size_t, size_t, FILE *)) dlsym_rtld_next( "fread" );
 		libc_exit = (void (*) (int)) dlsym_rtld_next( "exit" );
 		libc__exit = (void (*) (int)) dlsym_rtld_next( "_exit" );
 	}
@@ -596,8 +622,8 @@ void exit ( int exit_code )
 	if ( fout )
 	{
 		char cmd[BUFSIZ];
-		pid_t pid = syscall(SYS_getpid);
-		pid_t ppid = syscall(SYS_getppid);
+		pid_t pid = getpid();
+		pid_t ppid = getppid();
 		__get_proc_cmd( cmd, pid );
 		libc_fprintf( fout, "exit=%d pid=%d ppid=%d cmd=%s\n", exit_code, pid, ppid, cmd );
 		fclose( fout );
@@ -617,7 +643,7 @@ void _exit ( int exit_code )
 	if ( fout )
 	{
 		char cmd[BUFSIZ];
-		pid_t pid = syscall(SYS_getpid);
+		pid_t pid = getpid();
 		__get_proc_cmd( cmd, pid );
 		libc_fprintf( fout, "_exit=%d pid=%d cmd=%s\n", exit_code, pid, cmd );
 		fclose( fout );
