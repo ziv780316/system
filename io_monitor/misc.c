@@ -39,6 +39,10 @@ int (*libc_sprintf) (char *, const char*, ...) = NULL;
 int (*libc_vprintf) (const char*, va_list) = NULL;
 int (*libc_vsprintf) (char *, const char*, va_list) = NULL;
 int (*libc_vfprintf) (FILE *, const char*, va_list) = NULL;
+int (*libc_fscanf) (FILE *, const char *, ...) = NULL;
+int (*libc_sscanf) (const char *, const char *, ...) = NULL;
+char (*libc_fgets) (char *, int, FILE *) = NULL;
+pid_t (*libc_fork) () = NULL;
 void (*libc_exit) (int) = NULL;
 void (*libc__exit) (int) = NULL;
 
@@ -78,12 +82,21 @@ static FILE *fopen_w_check ( const char *name, const char *mode )
 	return stream;
 }
 
-static sighandler_t register_signal_handler ( int signum, void (*fp) (int) )
+sighandler_t register_signal_handler ( int signum, void (*fp) (int) )
 {
-	if ( SIG_ERR == signal( signum, fp ) )
+	struct sigaction new_action, old_action;
+	new_action.sa_handler = fp;
+	sigemptyset( &new_action.sa_mask );
+	new_action.sa_flags = 0;
+	if ( -1 == sigaction( signum, NULL, &old_action ) )
 	{
-		libc_fprintf( stderr, "[Error] register signal fail -> %s\n", strerror(errno) );
-		libc_exit(1);
+		fprintf( stderr, "[Error] sigaction get old action fail -> %s\n", strerror(errno) );
+		exit(1);
+	}
+	if ( -1 == sigaction( signum, &new_action, NULL ) )
+	{
+		fprintf( stderr, "[Error] sigaction register fail -> %s\n", strerror(errno) );
+		exit(1);
 	}
 }
 
@@ -166,10 +179,8 @@ static void run_shell_command_and_get_results ( char **output_str, const char *c
 		libc_exit(1);
 	}
 
-	if ( 0 == (pid = fork()) )
+	if ( 0 == (pid = libc_fork()) )
 	{
-		unsetenv( "LD_PRELOAD" ); 
-
 		close( fd[0] );
 		if( -1 == dup2( fd[1], STDOUT_FILENO ) )
 		{
@@ -178,7 +189,7 @@ static void run_shell_command_and_get_results ( char **output_str, const char *c
 		}
 
 		// child execute with sh has patter expasion (i.e. *)
-		execlp( "/bin/sh", "sh", "-c", (const char *)cmd, (char *) NULL );
+		execle( "/bin/sh", "sh", "-c", (const char *)cmd, (char *) NULL, (char *) NULL );
 
 		// exec return only in fail
 		libc_fprintf( stderr, "[Error] run_shell_command %s fail -> %s\n", cmd, strerror(errno) );
@@ -225,16 +236,84 @@ static void run_shell_command_and_get_results ( char **output_str, const char *c
 	close( fd[0] );
 }
 
+static void print_backtrace_pstree ( pid_t pid )
+{
+	char report_file[BUFSIZ];
+	libc_sprintf( report_file, "%s/pstree.%d", g_output_dir, pid );
+	FILE *fout = fopen_w_check( report_file, "w" );
+
+	char proc_file[BUFSIZ];
+	pid_t current_pid = pid;
+	pid_t ppid;
+	int scanf_result;
+	char *ret;
+	char exec_cmd[BUFSIZ];
+	char *exec_result;
+	char line[BUFSIZ];
+	FILE *fin;
+	while ( true )
+	{
+		libc_sprintf( proc_file, "/proc/%d/status", current_pid );
+		fin = fopen_w_check( proc_file, "r" );
+		if ( fin )
+		{
+			while ( true )
+			{
+				ret = fgets( line, BUFSIZ, fin );
+				if ( ret )
+				{
+					scanf_result = libc_sscanf( line, "PPid: %d", &ppid );
+					if ( scanf_result > 0 )
+					{
+						// match
+						break;
+					}
+				}
+				else
+				{
+					// error or EOF
+					libc_fprintf( stderr, "[Error] cannot find PPid in %s\n", proc_file );
+					fclose( fin );
+					goto end_print_backtrace_pstree;
+				}
+			}
+
+			fclose( fin );
+		}
+		else
+		{
+			break;
+		}
+		
+		libc_sprintf( exec_cmd, "cat /proc/%d/cmdline | tr '\\0' ' '", current_pid );
+		run_shell_command_and_get_results( &exec_result, exec_cmd );
+		libc_fprintf( fout, "pid=%d cmd=%s\n", current_pid, exec_result );
+		free( exec_result );
+		current_pid = ppid;
+
+		if ( (1 == current_pid) || (g_io_monitor_pid == current_pid) )
+		{
+			libc_sprintf( exec_cmd, "cat /proc/%d/cmdline | tr '\\0' ' '", current_pid );
+			run_shell_command_and_get_results( &exec_result, exec_cmd );
+			libc_fprintf( fout, "pid=%d cmd=%s\n", current_pid, exec_result );
+			free( exec_result );
+			break;
+		}
+	}
+
+end_print_backtrace_pstree:
+
+	fclose( fout );
+}
+
 static void run_shell_command ( const char *cmd )
 {
 	int status;
 	pid_t pid;
-	if ( 0 == (pid = fork()) )
+	if ( 0 == (pid = libc_fork()) )
 	{
-		unsetenv( "LD_PRELOAD" ); 
-
 		// child execute with sh has patter expasion (i.e. *)
-		execlp( "/bin/sh", "sh", "-c", (const char *)cmd, (char *) NULL );
+		execle( "/bin/sh", "sh", "-c", (const char *)cmd, (char *) NULL, (char *) NULL );
 
 		// exec return only in fail
 		libc_fprintf( stderr, "[Error] run_shell_command %s fail -> %s\n", cmd, strerror(errno) );
@@ -252,7 +331,7 @@ void __init_pid_info ( char *pid_info )
 	pid_t tid;
 	pid_t pid;
 	tid = syscall( SYS_gettid ); 
-	pid = syscall( SYS_getpid ); 
+	pid = getpid();
 	if ( pid == tid )
 	{
 		libc_sprintf( pid_info, "PID=%d", pid );
@@ -306,10 +385,13 @@ void __record_process_info ()
 	// necessary in this stage for convenience
 	libc_sprintf = (int (*) (char *, const char *, ...)) dlsym_rtld_next( "sprintf" ); 
 	libc_fprintf = (int (*) (FILE*, const char *, ...)) dlsym_rtld_next( "fprintf" ); 
+	libc_sscanf = (int (*) (const char *, const char *, ...)) dlsym_rtld_next( "sscanf" );
+	libc_fgets = (char (*) (char *, int, FILE *)) dlsym_rtld_next( "fgets" );
+	libc_fork = (pid_t (*) ()) dlsym_rtld_next ( "fork" );
 
 	// record pid and command
-	pid_t pid = syscall( SYS_getpid );
-	pid_t ppid = syscall( SYS_getppid );
+	pid_t pid = getpid();
+	pid_t ppid = getppid();
 	char exec_cmd[BUFSIZ];
 	char *exec_result;
 	char report_file[BUFSIZ];
@@ -332,8 +414,7 @@ void __record_process_info ()
 	// backtrace process tree 
 	if ( *g_ipc_monitor_flag & IO_MONITOR_IPC_MONITOR_PSTREE )
 	{
-		libc_sprintf( exec_cmd, "pstree -apsnl %d >> %s/pstree.%d", pid, g_output_dir, pid );
-		run_shell_command( exec_cmd );
+		print_backtrace_pstree( pid );
 	}
 
 	// dump process env
@@ -392,7 +473,7 @@ void __init_monitor ()
 	{
 		// unit test flow
 		g_ipc_monitor_flag = (unsigned int *) malloc ( sizeof(unsigned int) );
-		*g_ipc_monitor_flag = IO_MONITOR_IPC_MONITOR_READ | IO_MONITOR_IPC_MONITOR_WRITE;
+		*g_ipc_monitor_flag = IO_MONITOR_IPC_MONITOR_ALL;
 	}
 	else
 	{
@@ -406,6 +487,7 @@ void __init_monitor ()
 
 	// register signal 
 	register_signal_handler( SIGSEGV, sigsegv_backtrace );
+	register_signal_handler( SIGCHLD, SIG_DFL ); // prevent fork parent miss child exit sigchld
 
 	__record_process_info();
 }
@@ -436,6 +518,9 @@ void __link_libc_functions ()
 		libc_vfprintf = (int (*) (FILE *, const char *, va_list)) dlsym_rtld_next( "vfprintf" );
 		libc_vprintf = (int (*) (const char *, va_list)) dlsym_rtld_next( "vprintf" );
 		libc_vsprintf = (int (*) (char *, const char *, va_list)) dlsym_rtld_next( "vsprintf" );
+		libc_fscanf = (int (*) (FILE *, const char *, ...)) dlsym_rtld_next( "fscanf" );
+		libc_sscanf = (int (*) (const char *, const char *, ...)) dlsym_rtld_next( "sscanf" );
+		libc_fgets = (char (*) (char *, int, FILE *)) dlsym_rtld_next( "fgets" );
 		libc_fflush = (int (*) (FILE *)) dlsym_rtld_next( "fflush" );
 		libc_fputc = (int (*) (int, FILE *)) dlsym_rtld_next( "fputc" );
 		libc_fputs = (int (*) (const char *, FILE *)) dlsym_rtld_next( "fputs" );
@@ -443,6 +528,7 @@ void __link_libc_functions ()
 		libc_write = (ssize_t (*) (int , const void *, size_t)) dlsym_rtld_next( "write" );
 		libc_fwrite = (size_t (*) (const void *, size_t, size_t, FILE *)) dlsym_rtld_next( "fwrite" );
 		libc_fread = (size_t (*) (const void *, size_t, size_t, FILE *)) dlsym_rtld_next( "fread" );
+		libc_fork = (pid_t (*) ()) dlsym_rtld_next ( "fork" );
 		libc_exit = (void (*) (int)) dlsym_rtld_next( "exit" );
 		libc__exit = (void (*) (int)) dlsym_rtld_next( "_exit" );
 	}
@@ -651,4 +737,35 @@ void _exit ( int exit_code )
 
 	libc__exit( exit_code );
 	__asm__( "hlt" );
+}
+
+pid_t fork ()
+{
+	__link_libc_functions();
+
+	pid_t fork_pid = libc_fork();
+	if ( 0 == fork_pid )
+	{
+		pid_t pid = getpid();
+		pid_t ppid = getppid();
+		char exec_cmd[BUFSIZ];
+		char *exec_result;
+		char report_file[BUFSIZ];
+		libc_sprintf( report_file, "%s/init.report", g_output_dir );
+		FILE *fout = fopen_w_check( report_file, "a" );
+		if ( fout )
+		{
+			libc_sprintf( exec_cmd, "cat /proc/%d/cmdline | tr '\\0' ' '", pid );
+			run_shell_command_and_get_results( &exec_result, exec_cmd );
+			libc_fprintf( fout, "fork pid=%d ppid=%d cmd=%s", pid, ppid, exec_result );
+
+			libc_sprintf( exec_cmd, "cat /proc/%d/cmdline | tr '\\0' ' '", ppid );
+			run_shell_command_and_get_results( &exec_result, exec_cmd );
+			libc_fprintf( fout, " parent_cmd=%s\n", exec_result );
+
+			free( exec_result );
+			fclose( fout );
+		}
+	}
+	return fork_pid;
 }

@@ -58,7 +58,7 @@ ssize_t read ( int fd, void *buf, size_t n )
 	return status;
 }
 
-size_t fread(void *buf, size_t size, size_t nmemb, FILE *stream)
+size_t fread ( void *buf, size_t size, size_t nmemb, FILE *stream )
 {
 	__link_libc_functions();
 	__sync_ipc();

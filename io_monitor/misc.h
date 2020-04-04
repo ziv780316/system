@@ -30,6 +30,10 @@ extern int (*libc_fprintf) (FILE *, const char*, ...);
 extern int (*libc_vprintf) (const char*, va_list);
 extern int (*libc_vsprintf) (char *, const char*, va_list);
 extern int (*libc_vfprintf) (FILE *, const char*, va_list);
+extern int (*libc_fscanf) (FILE *, const char *, ...);
+extern int (*libc_sscanf) (const char *, const char *, ...);
+extern char (*libc_fgets) (char *s, int size, FILE *stream);
+extern pid_t (*libc_fork) ();
 extern void (*libc_exit) (int);
 extern void (*libc__exit) (int);
 

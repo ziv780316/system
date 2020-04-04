@@ -29,7 +29,7 @@ LOCAL_LIBC_NAME  = libc_local.a
 	$(CC) -c $< $(CFLAGS) -o $@ 
 
 lib%.so : %.o misc.o 
-	$(CC) $^ $(CFLAGS) -o $@ $(LOCAL_LIBC_NAME) -shared -ldl
+	$(CC) $^ $(CFLAGS) -o $@ -shared -ldl
 	xxd -i $@ > $(@:.so=.hex)
 
 #=================================================
@@ -46,7 +46,7 @@ io_both.o: io_write.o io_read.o
 	$(CC) -c $(@:.o=.c) $(CFLAGS) -o $@ 
 
 libio_both.so: libio_read.so libio_write.so misc.o io_both.o 
-	$(CC) $(LOCAL_LIBC_NAME) io_both.o misc.o $(CFLAGS) -o $@ -shared -ldl
+	$(CC) io_both.o misc.o $(CFLAGS) -o $@ -shared -ldl
 	xxd -i $@ > $(@:.so=.hex)
 
 obj_copy_libc:
