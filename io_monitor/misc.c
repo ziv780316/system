@@ -15,6 +15,7 @@
 #include <limits.h>
 #include <pthread.h>
 #include <sys/shm.h>
+#include <stdarg.h>
 
 #include "misc.h"
 
@@ -43,6 +44,7 @@ int (*libc_fscanf) (FILE *, const char *, ...) = NULL;
 int (*libc_sscanf) (const char *, const char *, ...) = NULL;
 char (*libc_fgets) (char *, int, FILE *) = NULL;
 pid_t (*libc_fork) () = NULL;
+int (*libc_execle) (const char *, const char *, ...) = NULL;
 void (*libc_exit) (int) = NULL;
 void (*libc__exit) (int) = NULL;
 
@@ -80,6 +82,60 @@ static FILE *fopen_w_check ( const char *name, const char *mode )
 		}
 	}
 	return stream;
+}
+
+static void *dynamic_array_realloc( void *mem, size_t origin_n_memb, size_t new_n_memb, size_t memb_size )
+{
+	const bool debug = false;
+
+	const size_t growth_rate = 2;
+
+	// find power of growth_rate
+	size_t val;
+	size_t origin_bound = 1;
+	val = origin_n_memb;
+	do
+	{
+		val /= growth_rate;
+		origin_bound *= growth_rate;
+	} while ( val > 0 );
+
+	size_t new_bound = 1;
+	val = new_n_memb;
+	do
+	{
+		val /= growth_rate;
+		new_bound *= growth_rate;
+	} while ( val > 0 );
+
+	// allocate
+	// amortize algorithm, each call of dynamic_array_realloc is comsume O(1)
+	// pf:
+	// N dynamic_array_realloc call and new_n_memb from 1 ~ n
+	// 1 + 2 + 4 + 8 + ... + 2^(log2(new_n_memb) + 1) < 2 * new_n_memb
+	// amortized each call consume only (2 * new_n_memb)/N is O(1)
+	if ( 0 == origin_n_memb )
+	{
+		mem = (void *) malloc( new_bound * memb_size );
+		if ( debug )
+		{
+			fprintf( stderr, "[Dynamic Array] growth space 0 -> %lu\n", new_bound );
+		}
+	}
+	else if ( origin_bound < new_bound )
+	{
+		if ( debug )
+		{
+			fprintf( stderr, "[Dynamic Array] growth space %lu -> %lu\n", origin_bound, new_bound );
+		}
+		mem = (void *) realloc( mem, (new_bound * memb_size) );
+	}
+	else
+	{
+		// there are remain spice, nothing to do
+	}
+
+	return mem;
 }
 
 sighandler_t register_signal_handler ( int signum, void (*fp) (int) )
@@ -120,9 +176,9 @@ static void *dlsym_rtld_next ( char *name )
 	}
 }
 
-static char *getenv_thread_save (const char *name)
+static char *getenv_thread_save ( char **env, const char *name )
 {
-	if ( (NULL == __environ) || ('\0' == name[0]) )
+	if ( (NULL == env) || ('\0' == name[0]) )
 	{
 		return NULL;
 	}
@@ -134,9 +190,9 @@ static char *getenv_thread_save (const char *name)
 	}
 
 	char *ep;
-	for ( int i = 0; __environ[i]; ++i )
+	for ( int i = 0; env[i]; ++i )
 	{
-		ep = __environ[i];
+		ep = env[i];
 
 		int ep_name_len = 0;
 		for ( int j = 0; ep[j]; ++j )
@@ -189,7 +245,7 @@ static void run_shell_command_and_get_results ( char **output_str, const char *c
 		}
 
 		// child execute with sh has patter expasion (i.e. *)
-		execle( "/bin/sh", "sh", "-c", (const char *)cmd, (char *) NULL, (char *) NULL );
+		libc_execle( "/bin/sh", "sh", "-c", (const char *)cmd, (char *) NULL, (char *) NULL );
 
 		// exec return only in fail
 		libc_fprintf( stderr, "[Error] run_shell_command %s fail -> %s\n", cmd, strerror(errno) );
@@ -313,7 +369,7 @@ static void run_shell_command ( const char *cmd )
 	if ( 0 == (pid = libc_fork()) )
 	{
 		// child execute with sh has patter expasion (i.e. *)
-		execle( "/bin/sh", "sh", "-c", (const char *)cmd, (char *) NULL, (char *) NULL );
+		libc_execle( "/bin/sh", "sh", "-c", (const char *)cmd, (char *) NULL, (char *) NULL );
 
 		// exec return only in fail
 		libc_fprintf( stderr, "[Error] run_shell_command %s fail -> %s\n", cmd, strerror(errno) );
@@ -388,6 +444,7 @@ void __record_process_info ()
 	libc_sscanf = (int (*) (const char *, const char *, ...)) dlsym_rtld_next( "sscanf" );
 	libc_fgets = (char (*) (char *, int, FILE *)) dlsym_rtld_next( "fgets" );
 	libc_fork = (pid_t (*) ()) dlsym_rtld_next ( "fork" );
+	libc_execle = (int (*) (const char *, const char *, ...)) dlsym_rtld_next ( "execle" );
 
 	// record pid and command
 	pid_t pid = getpid();
@@ -436,13 +493,13 @@ void __init_monitor ()
 
 	// get io_monitor spec
 	char *env;
-	env = getenv_thread_save( "IO_MONITOR_SHM_ID" );
+	env = getenv_thread_save( __environ, "IO_MONITOR_SHM_ID" );
 	if ( env )
 	{
 		g_io_monitor_shm_id = atoi( env );
 	}
 
-	env = getenv_thread_save( "IO_MONITOR_DUMP_TYPE" );
+	env = getenv_thread_save( __environ, "IO_MONITOR_DUMP_TYPE" );
 	if ( !env )
 	{
 		g_dump_type = DUMP_ASCII;
@@ -452,7 +509,7 @@ void __init_monitor ()
 		g_dump_type = atoi( env );
 	}
 
-	env = getenv_thread_save( "IO_MONITOR_REPORT_DIR" );
+	env = getenv_thread_save( __environ, "IO_MONITOR_REPORT_DIR" );
 	if ( !env )
 	{
 		g_output_dir = strdup( "/tmp" );
@@ -462,7 +519,7 @@ void __init_monitor ()
 		g_output_dir = strdup( env );
 	}
 
-	env = getenv_thread_save( "IO_MONITOR_PID" );
+	env = getenv_thread_save( __environ, "IO_MONITOR_PID" );
 	if ( env )
 	{
 		g_io_monitor_pid = atoi( env );
@@ -529,6 +586,7 @@ void __link_libc_functions ()
 		libc_fwrite = (size_t (*) (const void *, size_t, size_t, FILE *)) dlsym_rtld_next( "fwrite" );
 		libc_fread = (size_t (*) (const void *, size_t, size_t, FILE *)) dlsym_rtld_next( "fread" );
 		libc_fork = (pid_t (*) ()) dlsym_rtld_next ( "fork" );
+		libc_execle = (int (*) (const char *, const char *, ...)) dlsym_rtld_next ( "execle" );
 		libc_exit = (void (*) (int)) dlsym_rtld_next( "exit" );
 		libc__exit = (void (*) (int)) dlsym_rtld_next( "_exit" );
 	}
@@ -748,24 +806,120 @@ pid_t fork ()
 	{
 		pid_t pid = getpid();
 		pid_t ppid = getppid();
-		char exec_cmd[BUFSIZ];
-		char *exec_result;
 		char report_file[BUFSIZ];
 		libc_sprintf( report_file, "%s/init.report", g_output_dir );
 		FILE *fout = fopen_w_check( report_file, "a" );
 		if ( fout )
 		{
-			libc_sprintf( exec_cmd, "cat /proc/%d/cmdline | tr '\\0' ' '", pid );
-			run_shell_command_and_get_results( &exec_result, exec_cmd );
-			libc_fprintf( fout, "fork pid=%d ppid=%d cmd=%s", pid, ppid, exec_result );
-
-			libc_sprintf( exec_cmd, "cat /proc/%d/cmdline | tr '\\0' ' '", ppid );
-			run_shell_command_and_get_results( &exec_result, exec_cmd );
-			libc_fprintf( fout, " parent_cmd=%s\n", exec_result );
-
-			free( exec_result );
+			libc_fprintf( fout, "pid=%d fork child_pid=%d\n", ppid, pid );
 			fclose( fout );
 		}
 	}
 	return fork_pid;
+}
+
+int execle ( const char *path, const char *arg0, ... )
+{
+	int argc = 0;
+	int envc = 0;
+	char *arg;
+	char **argv;
+	char **env;
+
+	argv = (char **) dynamic_array_realloc( argv, argc, argc + 1, sizeof(char *) );
+	argv[argc] = strdup( arg0 );
+	++argc;
+
+	// extract argv 
+	va_list va;
+	va_start( va, arg0 );
+	arg = va_arg( va, char * );
+	while ( NULL != arg )
+	{
+		argv = (char **) dynamic_array_realloc( argv, argc, argc + 1, sizeof(char *) );
+		argv[argc] = strdup( arg );
+		++argc;
+		arg = va_arg( va, char * );
+	}
+	argv = (char **) dynamic_array_realloc( argv, argc, argc + 1, sizeof(char *) );
+	argv[argc] = NULL;
+
+	// extract env
+	env = va_arg( va, char * );
+	va_end( va );
+	if ( NULL == env )
+	{
+		// envc is 0
+	}
+	else
+	{
+		for ( int i = 0; NULL != env[i]; ++i )
+		{
+			++envc;
+		}
+	}
+
+	// export necessary env
+	if( NULL == getenv_thread_save( env, "LD_PRELOAD" ) )
+	{
+		char report_file[BUFSIZ];
+		libc_sprintf( report_file, "%s/init.report", g_output_dir );
+		FILE *fout = fopen_w_check( report_file, "a" );
+		libc_fprintf( fout, "pid=%d call execle w/o LD_PRELOAD, set LD_PRELOAD=%s\n", getpid(), getenv_thread_save( __environ, "LD_PRELOAD") );
+		libc_fprintf( fout, " + argc=%d\n", argc );
+		libc_fprintf( fout, " + envc=%d\n", envc );
+		for ( int i = 0; i < argc; ++i )
+		{
+			libc_fprintf( fout, " + argv[%d]=%s\n", i, argv[i] );
+		}
+
+		// export LD_PRELOAD
+		char envbuf[BUFSIZ];
+		libc_sprintf( envbuf, "LD_PRELOAD=%s", getenv_thread_save( __environ, "LD_PRELOAD" ) );
+		env = (char **) realloc( env, (envc + 2) * sizeof(char *) ); // LD_PRELOAD + NULL
+		env[envc] = strdup( envbuf );
+		env[envc + 1] = NULL;
+		++envc;
+
+		if ( getenv_thread_save( __environ, "IO_MONITOR_SHM_ID") && (NULL == getenv_thread_save( env, "IO_MONITOR_SHM_ID")) )
+		{
+			libc_sprintf( envbuf, "IO_MONITOR_SHM_ID=%s", getenv_thread_save( __environ, "IO_MONITOR_SHM_ID" ) );
+			env = (char **) realloc( env, (envc + 2) * sizeof(char *) ); 
+			env[envc] = strdup( envbuf );
+			env[envc + 1] = NULL;
+			++envc;
+		}
+		if ( getenv_thread_save( __environ, "IO_MONITOR_DUMP_TYPE") && (NULL == getenv_thread_save( env, "IO_MONITOR_DUMP_TYPE")) )
+		{
+			libc_sprintf( envbuf, "IO_MONITOR_DUMP_TYPE=%s", getenv_thread_save( __environ, "IO_MONITOR_DUMP_TYPE" ) );
+			env = (char **) realloc( env, (envc + 2) * sizeof(char *) ); 
+			env[envc] = strdup( envbuf );
+			env[envc + 1] = NULL;
+			++envc;
+		}
+		if ( getenv_thread_save( __environ, "IO_MONITOR_REPORT_DIR") && (NULL == getenv_thread_save( env, "IO_MONITOR_REPORT_DIR")) )
+		{
+			libc_sprintf( envbuf, "IO_MONITOR_REPORT_DIR=%s", getenv_thread_save( __environ, "IO_MONITOR_REPORT_DIR" ) );
+			env = (char **) realloc( env, (envc + 2) * sizeof(char *) ); 
+			env[envc] = strdup( envbuf );
+			env[envc + 1] = NULL;
+			++envc;
+		}
+
+		for ( int i = 0; i < envc; ++i )
+		{
+			libc_fprintf( fout, " + env[%d]=%s\n", i, env[i] );
+		}
+
+		fclose( fout );
+	}
+
+	int status = execve( path, (char **const)argv, (char **const)env );
+
+	for ( int i = 0; i < argc; ++i )
+	{
+		free( argv[i] );
+	}
+
+	return status;
 }
