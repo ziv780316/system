@@ -44,9 +44,12 @@ int (*libc_fscanf) (FILE *, const char *, ...) = NULL;
 int (*libc_sscanf) (const char *, const char *, ...) = NULL;
 char (*libc_fgets) (char *, int, FILE *) = NULL;
 pid_t (*libc_fork) () = NULL;
+pid_t (*libc_vfork) () = NULL;
 int (*libc_execle) (const char *, const char *, ...) = NULL;
 void (*libc_exit) (int) = NULL;
 void (*libc__exit) (int) = NULL;
+int (*libc_unlink) (const char *) = NULL;
+int (*libc_remove) (const char *) = NULL;
 
 static void create_dir ( char *dir )
 {
@@ -589,6 +592,8 @@ void __link_libc_functions ()
 		libc_execle = (int (*) (const char *, const char *, ...)) dlsym_rtld_next ( "execle" );
 		libc_exit = (void (*) (int)) dlsym_rtld_next( "exit" );
 		libc__exit = (void (*) (int)) dlsym_rtld_next( "_exit" );
+		libc_unlink = (int (*) (const char *)) dlsym_rtld_next( "unlink" );
+		libc_remove = (int (*) (const char *)) dlsym_rtld_next( "remove" );
 	}
 
 	pthread_mutex_unlock( &g_mutex );
@@ -818,6 +823,27 @@ pid_t fork ()
 	return fork_pid;
 }
 
+pid_t vfork ()
+{
+	__link_libc_functions();
+
+	pid_t fork_pid = libc_fork();
+	if ( 0 == fork_pid )
+	{
+		pid_t pid = getpid();
+		pid_t ppid = getppid();
+		char report_file[BUFSIZ];
+		libc_sprintf( report_file, "%s/init.report", g_output_dir );
+		FILE *fout = fopen_w_check( report_file, "a" );
+		if ( fout )
+		{
+			libc_fprintf( fout, "pid=%d vfork child_pid=%d\n", ppid, pid );
+			fclose( fout );
+		}
+	}
+	return fork_pid;
+}
+
 int execle ( const char *path, const char *arg0, ... )
 {
 	int argc = 0;
@@ -845,7 +871,7 @@ int execle ( const char *path, const char *arg0, ... )
 	argv[argc] = NULL;
 
 	// extract env
-	env = va_arg( va, char * );
+	env = va_arg( va, char ** );
 	va_end( va );
 	if ( NULL == env )
 	{
@@ -922,4 +948,68 @@ int execle ( const char *path, const char *arg0, ... )
 	}
 
 	return status;
+}
+
+int unlink ( const char *path )
+{
+	__link_libc_functions();
+
+	char report_file[BUFSIZ];
+	libc_sprintf( report_file, "%s/remove.report", g_output_dir );
+	FILE *fout = fopen_w_check( report_file, "a" );
+	if ( fout )
+	{
+		pid_t pid = getpid();
+		pid_t ppid = getppid();
+		char cmd[BUFSIZ];
+		__get_proc_cmd( cmd, pid );
+		libc_fprintf( fout, "pid=%d ppid=%d unlink=%s cmd=%s\n", pid, ppid, path, cmd );
+
+		char *exec_result;
+		char exec_cmd[BUFSIZ];
+		libc_sprintf( exec_cmd, "cp %s %s/remove.%s 2>&1", path, g_output_dir, basename(path) );
+		run_shell_command_and_get_results( &exec_result, exec_cmd );
+		if ( strlen(exec_result) > 0 )
+		{
+			// cp fail
+			libc_fprintf( fout, "cp %s fail -> %s\n", path, exec_result );
+		}
+		free( exec_result );
+
+		fclose( fout );
+	}
+
+	return libc_unlink( path );
+}
+
+int remove ( const char *path )
+{
+	__link_libc_functions();
+
+	char report_file[BUFSIZ];
+	libc_sprintf( report_file, "%s/remove.report", g_output_dir );
+	FILE *fout = fopen_w_check( report_file, "a" );
+	if ( fout )
+	{
+		pid_t pid = getpid();
+		pid_t ppid = getppid();
+		char cmd[BUFSIZ];
+		__get_proc_cmd( cmd, pid );
+		libc_fprintf( fout, "pid=%d ppid=%d remove=%s cmd=%s\n", pid, ppid, path, cmd );
+
+		char *exec_result;
+		char exec_cmd[BUFSIZ];
+		libc_sprintf( exec_cmd, "cp %s %s/remove.%s 2>&1", path, g_output_dir, basename(path) );
+		run_shell_command_and_get_results( &exec_result, exec_cmd );
+		if ( strlen(exec_result) > 0 )
+		{
+			// cp fail
+			libc_fprintf( fout, "cp %s fail -> %s\n", path, exec_result );
+		}
+		free( exec_result );
+
+		fclose( fout );
+	}
+
+	return libc_remove( path );
 }

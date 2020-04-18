@@ -291,9 +291,13 @@ void io_monitor_user_interaction ()
 	{
 		current_key[cnt++] = IO_MONITOR_USER_KEY_MONITOR_ENV;
 	}
+	if ( *(g_monitor.ipc_monitor_flag) & IO_MONITOR_IPC_MONITOR_REMOVE )
+	{
+		current_key[cnt++] = IO_MONITOR_USER_KEY_MONITOR_REMOVE;
+	}
 
 	char user_key[BUFSIZ];
-	printf( "stop(s) off(o) read(r) write(w) pstree(p) env(e) all(a) kill(k)\n" );
+	printf( "stop(s) off(o) read(r) write(w) pstree(p) env(e) remove(m) all(a) kill(k)\n" );
 	printf( "input monitor command (current=%s): ", current_key );
 	scanf( "%s", user_key );
 
@@ -325,6 +329,10 @@ void io_monitor_user_interaction ()
 
 			case IO_MONITOR_USER_KEY_MONITOR_ENV:
 				*(g_monitor.ipc_monitor_flag) |= IO_MONITOR_IPC_MONITOR_ENV;
+				break;
+
+			case IO_MONITOR_USER_KEY_MONITOR_REMOVE:
+				*(g_monitor.ipc_monitor_flag) |= IO_MONITOR_IPC_MONITOR_REMOVE;
 				break;
 
 			case IO_MONITOR_USER_KEY_MONITOR_ALL:
@@ -422,7 +430,7 @@ int main ( int argc, char **argv )
 			}
 			else
 			{
-				*(g_monitor.ipc_monitor_flag) = IO_MONITOR_IPC_MONITOR_READ | IO_MONITOR_IPC_MONITOR_WRITE;
+				*(g_monitor.ipc_monitor_flag) = IO_MONITOR_IPC_MONITOR_READ | IO_MONITOR_IPC_MONITOR_WRITE | IO_MONITOR_IPC_MONITOR_REMOVE;
 				if ( -1 != waitpid( g_monitor.child_pid, &status, 0 ) )
 				{
 					printf( "Child pid=%d terminated with status=%d\n", g_monitor.child_pid, status );

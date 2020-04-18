@@ -35,8 +35,11 @@ extern int (*libc_sscanf) (const char *, const char *, ...);
 extern char (*libc_fgets) (char *s, int size, FILE *stream);
 extern int (*libc_execle) (const char *path, const char *arg, ...);
 extern pid_t (*libc_fork) ();
+extern pid_t (*libc_vfork) ();
 extern void (*libc_exit) (int);
 extern void (*libc__exit) (int);
+extern int (*libc_unlink) (const char *pathname);
+extern int (*libc_remove) (const char *pathname);
 
 extern unsigned int *g_ipc_monitor_flag;
 
