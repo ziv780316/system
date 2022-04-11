@@ -21,6 +21,7 @@
 #include "libio_read.hex" 
 #include "libio_write.hex" 
 #include "libio_both.hex" 
+#include "replace_functions"
 
 monitor_t g_monitor;
 
@@ -111,23 +112,14 @@ void signal_do_nothing ( int signum )
 void create_tmp_so_file ( int *tmpfile_fd, char **ptmpfile_name )
 {
 	char *tmpfile_name = (char *) calloc( BUFSIZ, sizeof(char) );
-	sprintf( tmpfile_name, "/tmp/.libXXXXXX" );
-	if ( NULL == mktemp( tmpfile_name ) )
+	sprintf( tmpfile_name, "/tmp/.lib.so.XXXXXX" );
+	int fd = mkstemp( tmpfile_name );
+	if ( -1 == fd )
 	{
 		fprintf( stderr, "[error] create tmpfile name fail -> %s\n", strerror(errno) );
 		exit(1);
 	}
-	char so_name[BUFSIZ];
-	sprintf( so_name, "%s.so", tmpfile_name );
-
-	int fd = open( so_name, O_CREAT | O_WRONLY | O_TRUNC, S_IRWXU );
-	if ( -1 == fd )
-	{
-		fprintf( stderr, "[error] create tmpfile %s fail -> %s\n", so_name, strerror(errno) );
-		exit(1);
-	}
-
-	*ptmpfile_name = strdup( so_name );
+	*ptmpfile_name = strdup( tmpfile_name ); 
 	*tmpfile_fd = fd;
 }
 
@@ -191,16 +183,38 @@ void dump_pre_compile_lib ()
 
 void create_ipc_shm ()
 {
+	int total_len = 0;
+	int cnt = 0;
+	int shm_size = 0;
+	int incr;
+	int len;
+	const char *name;
+	char *func_list = NULL;
+	while( (name = replace_functions[cnt]) != NULL )
+	{
+		len = strlen(name);
+		incr = len + 1; // include '\0' 
+		total_len += incr;
+		func_list = (char *) realloc ( func_list, total_len );
+		sprintf( func_list + total_len - incr, "%s", name );
+		++cnt;
+	}
+
+	shm_size = sizeof(unsigned int); // ipc_monitor_flag;
+	shm_size += sizeof(unsigned int) + sizeof(int) + total_len + (cnt * sizeof(bool)); 
+	g_monitor.shm_size = shm_size;
+	g_monitor.n_monitor_function = cnt;
+
 	key_t key;
 	key = ftok( g_monitor.tmp_so_name, IO_MONITOR_IPC_PROJ_ID );
 	if ( -1 == key )
 	{
-		fprintf( stderr, "[Error] ftok generate IPC key fail -> %s\n", strerror(errno) );
+		fprintf( stderr, "[Error] ftok generate IPC key fail (path=%s) -> %s\n", g_monitor.tmp_so_name, strerror(errno) );
 		exit(1);
 	}
 
 	int shm_id;
-	shm_id = shmget( key, sizeof(unsigned int), 0644 | IPC_CREAT );
+	shm_id = shmget( key, g_monitor.shm_size, 0644 | IPC_CREAT );
 	if ( -1 == shm_id )
 	{
 		fprintf( stderr, "[Error] shmget share memory create fail -> %s\n", strerror(errno) );
@@ -208,11 +222,32 @@ void create_ipc_shm ()
 	}
 	g_monitor.shm_id = shm_id;
 
-	g_monitor.ipc_monitor_flag = (unsigned int *)shmat( shm_id, NULL, 0 );
-	if ( !g_monitor.ipc_monitor_flag )
+	char *base = (char *)shmat( shm_id, NULL, 0 );
+	if ( !base )
 	{
 		fprintf( stderr, "[Error] shmat get data fail -> %s\n", strerror(errno) );
 		exit(1);
+	}
+
+	// init ipc_monitor_flag
+	g_monitor.ipc_monitor_flag = (unsigned int *) base;
+	*(g_monitor.ipc_monitor_flag) = IO_MONITOR_IPC_MONITOR_STOP;
+
+	// init n_monitor_function
+	g_monitor.n_monitor_function = cnt;
+	*(int *)(base + sizeof(unsigned int)) = g_monitor.n_monitor_function;
+
+	// init ipc_monitor_functions
+	g_monitor.ipc_monitor_functions = (base + sizeof(unsigned int) + sizeof(int));
+	char *dest_ptr = g_monitor.ipc_monitor_functions;
+	char *src_ptr = func_list;
+	for ( int i = 0; i < cnt; ++i )
+	{
+		len = strlen(src_ptr);
+		strcpy(dest_ptr, src_ptr);
+		*(bool *)(dest_ptr + len + 1) = true;
+		dest_ptr += len + 1 + 1; // + '\0' + bool
+		src_ptr += strlen(src_ptr) + 1;
 	}
 }
 
@@ -263,6 +298,45 @@ void create_dir ( char *dir )
 	}
 }
 
+void show_monitor_functions ()
+{
+	char *ptr = g_monitor.ipc_monitor_functions;
+	int n_monitor_function = g_monitor.n_monitor_function;
+	int len;
+	printf( " + monitor functions:" );
+	for ( int i = 0; i < n_monitor_function; ++i )
+	{
+		len = strlen(ptr);
+		if ( true == *(bool *)(ptr + len + 1) )
+		{
+			printf( " %s", ptr );
+		}
+		ptr += len + 1 + 1; // skip '\0' and bool
+	}
+	printf( "\n" );
+}
+
+void unregister_monitor_functions ( const char *func )
+{
+	char *ptr = g_monitor.ipc_monitor_functions;
+	int n_monitor_function = g_monitor.n_monitor_function;
+	int len;
+	for ( int i = 0; i < n_monitor_function; ++i )
+	{
+		len = strlen(ptr);
+		if ( true == *(bool *)(ptr + len + 1) )
+		{
+			if ( 0 == strcmp(ptr, func) )
+			{
+				*(bool *)(ptr + len + 1) = false;
+				return;
+			}
+		}
+		ptr += len + 1 + 1; // skip '\0' and bool
+	}
+	printf( "[Warning] function %s is not in monitor list\n", func );
+}
+
 void io_monitor_user_interaction ()
 {
 	int cnt = 0;
@@ -295,10 +369,14 @@ void io_monitor_user_interaction ()
 	{
 		current_key[cnt++] = IO_MONITOR_USER_KEY_MONITOR_REMOVE;
 	}
+	if ( *(g_monitor.ipc_monitor_flag) & IO_MONITOR_IPC_MONITOR_FILE )
+	{
+		current_key[cnt++] = IO_MONITOR_USER_KEY_MONITOR_FILE;
+	}
 
 	char user_key[BUFSIZ];
-	printf( "stop(s) off(o) read(r) write(w) pstree(p) env(e) remove(m) all(a) kill(k)\n" );
-	printf( "input monitor command (current=%s): ", current_key );
+	printf( "* stop(s) off(o) continue(c) file(f) read(r) write(w) pstree(p) env(e) remove(m) all(a) kill(k) unregister(u)\n" );
+	printf( " + input monitor command (current=%s): ", current_key );
 	scanf( "%s", user_key );
 
 	int key;
@@ -307,6 +385,10 @@ void io_monitor_user_interaction ()
 		key = user_key[i];
 		switch ( key )
 		{
+			case IO_MONITOR_USER_KEY_MONITOR_CONTINUE:
+				*(g_monitor.ipc_monitor_flag) &= ~IO_MONITOR_IPC_MONITOR_STOP;
+				break;
+
 			case IO_MONITOR_USER_KEY_MONITOR_STOP:
 				*(g_monitor.ipc_monitor_flag) = IO_MONITOR_IPC_MONITOR_STOP;
 				break;
@@ -335,8 +417,24 @@ void io_monitor_user_interaction ()
 				*(g_monitor.ipc_monitor_flag) |= IO_MONITOR_IPC_MONITOR_REMOVE;
 				break;
 
+			case IO_MONITOR_USER_KEY_MONITOR_FILE:
+				*(g_monitor.ipc_monitor_flag) |= IO_MONITOR_IPC_MONITOR_FILE;
+				break;
+
 			case IO_MONITOR_USER_KEY_MONITOR_ALL:
 				*(g_monitor.ipc_monitor_flag) = IO_MONITOR_IPC_MONITOR_ALL;
+				break;
+
+			case IO_MONITOR_USER_KEY_MONITOR_UNREGISTER:
+				{
+					char buf[BUFSIZ];
+					printf( " + enter unregister function: " );
+					if ( 1 == scanf("%s", buf) )
+					{
+						unregister_monitor_functions( buf );
+						show_monitor_functions();
+					}
+				}
 				break;
 
 			case IO_MONITOR_USER_KEY_MONITOR_KILL:
@@ -376,7 +474,6 @@ int main ( int argc, char **argv )
 
 		// create share memory for IPC
 		create_ipc_shm();
-		*(g_monitor.ipc_monitor_flag) = IO_MONITOR_IPC_MONITOR_UNINIT;
 
 		// get user setting
 		int status;
@@ -384,7 +481,7 @@ int main ( int argc, char **argv )
 		if ( 0 == (pid = fork()) )
 		{
 			// polling wait parent 
-			while ( IO_MONITOR_IPC_MONITOR_UNINIT == *(g_monitor.ipc_monitor_flag) )
+			while ( IO_MONITOR_IPC_MONITOR_STOP == *(g_monitor.ipc_monitor_flag) )
 			{
 				usleep(10000);
 			}
@@ -420,9 +517,19 @@ int main ( int argc, char **argv )
 			printf( "report dir   = %s\n", g_monitor.result_dir );
 			printf( "child pid    = %d\n", g_monitor.child_pid );
 			printf( "shm ID       = %d\n", g_monitor.shm_id );
+			printf( "shm size     = %d\n", g_monitor.shm_size );
+			printf( "n_monitor    = %d\n", g_monitor.n_monitor_function );
+			printf( "monitor functions =" );
+			for ( int i = 0; i < g_monitor.n_monitor_function; ++i )
+			{
+				printf( " %s", replace_functions[i] );
+			}
+			printf( "\n" );
 
 			if ( g_opts.interactive_mode )
 			{
+				printf( "\n--------------------------\n" );
+				printf( "* enter the first monitor flag\n" );
 				while( true )
 				{
 					io_monitor_user_interaction();
@@ -430,7 +537,7 @@ int main ( int argc, char **argv )
 			}
 			else
 			{
-				*(g_monitor.ipc_monitor_flag) = IO_MONITOR_IPC_MONITOR_READ | IO_MONITOR_IPC_MONITOR_WRITE | IO_MONITOR_IPC_MONITOR_REMOVE;
+				*(g_monitor.ipc_monitor_flag) = IO_MONITOR_IPC_MONITOR_READ | IO_MONITOR_IPC_MONITOR_WRITE | IO_MONITOR_IPC_MONITOR_REMOVE | IO_MONITOR_USER_KEY_MONITOR_FILE;
 				if ( -1 != waitpid( g_monitor.child_pid, &status, 0 ) )
 				{
 					printf( "Child pid=%d terminated with status=%d\n", g_monitor.child_pid, status );

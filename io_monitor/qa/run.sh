@@ -61,6 +61,7 @@ program=../io_monitor
 
 output_dir=result10
 rm -rf $output_dir
-gcc -O0 -g case10.c -o case10.exe
+gcc -O0 -c case10.c -o case10.o
+gcc case10.o -o case10.exe
 cmd="./case10.exe"
-$program -c "$cmd" -o $output_dir -t ascii -m both
+$program -c "$cmd" -o $output_dir -i

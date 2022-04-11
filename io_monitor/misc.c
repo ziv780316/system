@@ -16,16 +16,19 @@
 #include <pthread.h>
 #include <sys/shm.h>
 #include <stdarg.h>
+#include <time.h>
 
 #include "misc.h"
 
 pthread_mutex_t g_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 static int g_dump_type = DUMP_NONE;
-static char *g_output_dir = NULL;
+char *g_output_dir = NULL;
 static pid_t g_io_monitor_pid = -1;
 static int g_io_monitor_shm_id;
 unsigned int *g_ipc_monitor_flag = NULL;
+int g_ipc_n_monitor_function = 0;
+char *g_ipc_monitor_functions = NULL;
 
 ssize_t (*libc_read) (int , void *, size_t) = NULL;
 ssize_t (*libc_write) (int , const void *, size_t) = NULL;
@@ -50,6 +53,10 @@ void (*libc_exit) (int) = NULL;
 void (*libc__exit) (int) = NULL;
 int (*libc_unlink) (const char *) = NULL;
 int (*libc_remove) (const char *) = NULL;
+int (*libc_open) (const char *, int, ...) = NULL;
+int (*libc_close) (int) = NULL;
+FILE *(*libc_fopen) (const char *, const char*) = NULL;
+int (*libc_fclose) (FILE *) = NULL;
 
 static void create_dir ( char *dir )
 {
@@ -62,7 +69,7 @@ static void create_dir ( char *dir )
 
 static FILE *fopen_w_check ( const char *name, const char *mode )
 {
-	FILE *stream = fopen( name, mode );
+	FILE *stream = libc_fopen( name, mode );
 	if ( !stream )
 	{
 		if ( ENAMETOOLONG == errno )
@@ -70,7 +77,7 @@ static FILE *fopen_w_check ( const char *name, const char *mode )
 			char truncated_name[BUFSIZ];
 			strcpy( truncated_name, name );
 			truncated_name[NAME_MAX - 1] = '\0';
-			stream = fopen( truncated_name, mode );
+			stream = libc_fopen( truncated_name, mode );
 			libc_fprintf( stderr, "[Warning] truncate file from %d length to name %s\n", strlen(name), truncated_name );
 			if ( !stream )
 			{
@@ -240,7 +247,7 @@ static void run_shell_command_and_get_results ( char **output_str, const char *c
 
 	if ( 0 == (pid = libc_fork()) )
 	{
-		close( fd[0] );
+		libc_close( fd[0] );
 		if( -1 == dup2( fd[1], STDOUT_FILENO ) )
 		{
 			libc_fprintf( stderr, "[Error] dup2 fail -> %s\n", strerror(errno) );
@@ -257,7 +264,7 @@ static void run_shell_command_and_get_results ( char **output_str, const char *c
 	else
 	{
 		// parent
-		close( fd[1] );
+		libc_close( fd[1] );
 		waitpid( pid, &status, 0 );
 	}
 
@@ -292,7 +299,7 @@ static void run_shell_command_and_get_results ( char **output_str, const char *c
 		}
 
 	}
-	close( fd[0] );
+	libc_close( fd[0] );
 }
 
 static void print_backtrace_pstree ( pid_t pid )
@@ -332,12 +339,12 @@ static void print_backtrace_pstree ( pid_t pid )
 				{
 					// error or EOF
 					libc_fprintf( stderr, "[Error] cannot find PPid in %s\n", proc_file );
-					fclose( fin );
+					libc_fclose( fin );
 					goto end_print_backtrace_pstree;
 				}
 			}
 
-			fclose( fin );
+			libc_fclose( fin );
 		}
 		else
 		{
@@ -362,7 +369,7 @@ static void print_backtrace_pstree ( pid_t pid )
 
 end_print_backtrace_pstree:
 
-	fclose( fout );
+	libc_fclose( fout );
 }
 
 static void run_shell_command ( const char *cmd )
@@ -400,6 +407,17 @@ void __init_pid_info ( char *pid_info )
 		libc_sprintf( pid_info, "PID=%d TID=%d", pid, tid );
 	}
 
+}
+
+char * __get_time_string()
+{
+	static char buf[BUFSIZ];
+	time_t rawtime;
+	struct tm *timeinfo;
+	time( &rawtime );
+	timeinfo = localtime( &rawtime );
+	sprintf( buf, "%d/%02d/%02d-%02d:%02d:%02d", timeinfo->tm_year + 1900, timeinfo->tm_mon, timeinfo->tm_mday, timeinfo->tm_hour, timeinfo->tm_min, timeinfo->tm_sec );
+	return buf;
 }
 
 FILE *__create_report_file ( char *type, char *exec, char *event_file )
@@ -442,6 +460,10 @@ FILE *__create_report_file ( char *type, char *exec, char *event_file )
 void __record_process_info ()
 {
 	// necessary in this stage for convenience
+	libc_open = (int (*) (const char *, int, ...)) dlsym_rtld_next( "open" );
+	libc_close = (int (*) (int)) dlsym_rtld_next( "close" );
+	libc_fopen = (FILE *(*) (const char *, const  char *)) dlsym_rtld_next( "fopen" );
+	libc_fclose = (int (*) (FILE *)) dlsym_rtld_next( "fclose" );
 	libc_sprintf = (int (*) (char *, const char *, ...)) dlsym_rtld_next( "sprintf" ); 
 	libc_fprintf = (int (*) (FILE*, const char *, ...)) dlsym_rtld_next( "fprintf" ); 
 	libc_sscanf = (int (*) (const char *, const char *, ...)) dlsym_rtld_next( "sscanf" );
@@ -468,7 +490,7 @@ void __record_process_info ()
 		libc_fprintf( fout, " parent_cmd=%s\n", exec_result );
 
 		free( exec_result );
-		fclose( fout );
+		libc_fclose( fout );
 	}
 
 	// backtrace process tree 
@@ -537,12 +559,17 @@ void __init_monitor ()
 	}
 	else
 	{
-		g_ipc_monitor_flag = (unsigned int *) shmat( g_io_monitor_shm_id, NULL, 0 );
-		if ( !g_ipc_monitor_flag )
+	
+		char *base = (char *)shmat( g_io_monitor_shm_id, NULL, 0 );
+		if ( !base )
 		{
 			libc_fprintf( stderr, "[Error] shmat get data fail -> %s\n", strerror(errno) );
 			exit(1);
 		}
+
+		g_ipc_monitor_flag = (unsigned int *) base;
+		g_ipc_n_monitor_function = *(int *)(base + sizeof(unsigned int));
+		g_ipc_monitor_functions = base + sizeof(unsigned int) + sizeof(int);
 	}
 
 	// register signal 
@@ -554,10 +581,27 @@ void __init_monitor ()
 
 void __sync_ipc ()
 {
-	while( *g_ipc_monitor_flag == IO_MONITOR_IPC_MONITOR_STOP )
+	while( *g_ipc_monitor_flag & IO_MONITOR_IPC_MONITOR_STOP )
 	{
 		usleep( 100000 );
 	}
+}
+
+int __is_in_monitor_list ( const char *func )
+{
+	char *ptr = g_ipc_monitor_functions; 
+	int n_monitor_function = g_ipc_n_monitor_function;
+	int len;
+	for ( int i = 0; i < n_monitor_function; ++i )
+	{
+		len = strlen(ptr);
+		if ( (0 == strcmp(ptr, func)) && (true == *(bool *)(ptr + len + 1)) )
+		{
+			return true;
+		}
+		ptr += len + 1 + 1; // skip '\0' and bool
+	}
+	return false;
 }
 
 void __link_libc_functions ()
@@ -594,6 +638,10 @@ void __link_libc_functions ()
 		libc__exit = (void (*) (int)) dlsym_rtld_next( "_exit" );
 		libc_unlink = (int (*) (const char *)) dlsym_rtld_next( "unlink" );
 		libc_remove = (int (*) (const char *)) dlsym_rtld_next( "remove" );
+		libc_open = (int (*) (const char *, int, ...)) dlsym_rtld_next( "open" );
+		libc_close = (int (*) (int)) dlsym_rtld_next( "close" );
+		libc_fopen = (FILE *(*) (const char *, const  char *)) dlsym_rtld_next( "fopen" );
+		libc_fclose = (int (*) (FILE *)) dlsym_rtld_next( "fclose" );
 	}
 
 	pthread_mutex_unlock( &g_mutex );
@@ -657,6 +705,7 @@ void __get_proc_fd_name ( char *buf, pid_t pid, int fd )
 		if ( -1 == readlink( fd_link_path, file_name, BUFSIZ ) )
 		{
 			libc_fprintf( stderr, "[Error] readlink %s fail in %s\n", fd_link_path, __func__ );
+			__print_backtrace ();
 			libc_exit(1);
 		}
 		strcpy( buf, file_name );
@@ -696,18 +745,18 @@ void __get_proc_exec_name ( char *buf, pid_t pid )
 				if ( '-' != arg[0] ) 
 				{
 					strcpy( buf, arg );
-					fclose( fin );
+					libc_fclose( fin );
 					return;
 				}
 				i += j + 1;
 			}
 
 			strcpy( buf, shell );
-			fclose( fin );
+			libc_fclose( fin );
 			return;
 		}
 
-		fclose( fin );
+		libc_fclose( fin );
 		strcpy( buf, arg );
 	}
 	else
@@ -733,7 +782,7 @@ void __get_proc_cmd ( char *cmd_buf, pid_t pid )
 			}
 		}
 
-		fclose( fin );
+		libc_fclose( fin );
 
 		strcpy( cmd_buf, line );
 	}
@@ -761,9 +810,34 @@ void __print_backtrace ()
 	free( strings );
 }
 
+void __print_backtrace_n_deepth ( FILE *fout, int n_deepth )
+{
+	if ( n_deepth > 100 )
+	{
+		n_deepth = 100;
+	}
+
+#define MAX_BACKTRACE_DEPTH 100
+	void *buffer[MAX_BACKTRACE_DEPTH];
+	int nptrs = backtrace( buffer, n_deepth );
+	char **strings = backtrace_symbols( buffer, nptrs );
+	if ( !strings )
+	{
+		libc_fprintf( stderr, "[Error] backtrace fail -> %s\n", strerror(errno) );
+	}
+	for ( int i = 1; i < nptrs; ++i )
+	{
+		libc_fprintf( fout, " + %s\n", strings[i] );
+	}
+
+	free( strings );
+}
+
+__attribute__ ((noreturn))
 void exit ( int exit_code )  
 {
 	__link_libc_functions();
+	__sync_ipc();
 
 	char report_file[BUFSIZ];
 	libc_sprintf( report_file, "%s/exit.report", g_output_dir );
@@ -775,16 +849,20 @@ void exit ( int exit_code )
 		pid_t ppid = getppid();
 		__get_proc_cmd( cmd, pid );
 		libc_fprintf( fout, "exit=%d pid=%d ppid=%d cmd=%s\n", exit_code, pid, ppid, cmd );
-		fclose( fout );
+		libc_fclose( fout );
 	}
 
 	libc_exit( exit_code );
 	__asm__( "hlt" ); // prevent exit fail
+
+	while (1) {};
 }
 
+__attribute__ ((noreturn))
 void _exit ( int exit_code ) 
 {
 	__link_libc_functions();
+	__sync_ipc();
 
 	char report_file[BUFSIZ];
 	libc_sprintf( report_file, "%s/exit.report", g_output_dir );
@@ -795,16 +873,19 @@ void _exit ( int exit_code )
 		pid_t pid = getpid();
 		__get_proc_cmd( cmd, pid );
 		libc_fprintf( fout, "_exit=%d pid=%d cmd=%s\n", exit_code, pid, cmd );
-		fclose( fout );
+		libc_fclose( fout );
 	}
 
 	libc__exit( exit_code );
 	__asm__( "hlt" );
+
+	while (1) {};
 }
 
 pid_t fork ()
 {
 	__link_libc_functions();
+	__sync_ipc();
 
 	pid_t fork_pid = libc_fork();
 	if ( 0 == fork_pid )
@@ -817,7 +898,7 @@ pid_t fork ()
 		if ( fout )
 		{
 			libc_fprintf( fout, "pid=%d fork child_pid=%d\n", ppid, pid );
-			fclose( fout );
+			libc_fclose( fout );
 		}
 	}
 	return fork_pid;
@@ -826,6 +907,7 @@ pid_t fork ()
 pid_t vfork ()
 {
 	__link_libc_functions();
+	__sync_ipc();
 
 	pid_t fork_pid = libc_fork();
 	if ( 0 == fork_pid )
@@ -838,7 +920,7 @@ pid_t vfork ()
 		if ( fout )
 		{
 			libc_fprintf( fout, "pid=%d vfork child_pid=%d\n", ppid, pid );
-			fclose( fout );
+			libc_fclose( fout );
 		}
 	}
 	return fork_pid;
@@ -937,7 +1019,7 @@ int execle ( const char *path, const char *arg0, ... )
 			libc_fprintf( fout, " + env[%d]=%s\n", i, env[i] );
 		}
 
-		fclose( fout );
+		libc_fclose( fout );
 	}
 
 	int status = execve( path, (char **const)argv, (char **const)env );
@@ -953,6 +1035,7 @@ int execle ( const char *path, const char *arg0, ... )
 int unlink ( const char *path )
 {
 	__link_libc_functions();
+	__sync_ipc();
 
 	char report_file[BUFSIZ];
 	libc_sprintf( report_file, "%s/remove.report", g_output_dir );
@@ -976,7 +1059,7 @@ int unlink ( const char *path )
 		}
 		free( exec_result );
 
-		fclose( fout );
+		libc_fclose( fout );
 	}
 
 	return libc_unlink( path );
@@ -985,6 +1068,7 @@ int unlink ( const char *path )
 int remove ( const char *path )
 {
 	__link_libc_functions();
+	__sync_ipc();
 
 	char report_file[BUFSIZ];
 	libc_sprintf( report_file, "%s/remove.report", g_output_dir );
@@ -1008,8 +1092,164 @@ int remove ( const char *path )
 		}
 		free( exec_result );
 
-		fclose( fout );
+		libc_fclose( fout );
 	}
 
 	return libc_remove( path );
+}
+
+FILE *fopen( const char *pathname, const char *mode )
+{
+	__link_libc_functions();
+	__sync_ipc();
+
+	if ( !(*g_ipc_monitor_flag & IO_MONITOR_IPC_MONITOR_FILE) || !__is_in_monitor_list(__func__) )
+	{
+		return libc_fopen( pathname, mode );
+	}
+
+	FILE *fstream = libc_fopen( pathname, mode );
+
+	char report_file[BUFSIZ];
+	libc_sprintf( report_file, "%s/fopen.report", g_output_dir );
+	FILE *fout = libc_fopen( report_file, "a" );
+	if ( fout )
+	{
+		pid_t pid = getpid();
+		pid_t ppid = getppid();
+		char cmd[BUFSIZ];
+		__get_proc_cmd( cmd, pid );
+		char *time_str = __get_time_string();
+
+		int fd = fileno(fstream);
+		char file_name[BUFSIZ];
+		__get_proc_fd_name( file_name, pid, fd );
+
+		libc_fprintf( fout, "fopen=%s mode=%s time=%s pid=%d ppid=%d cmd=%s\n", file_name, mode, time_str, pid, ppid, cmd );
+
+		__print_backtrace_n_deepth( fout, 5 );
+
+		libc_fclose( fout );
+	}
+
+	return fstream;
+}
+
+int fclose( FILE *fstream )
+{
+	__link_libc_functions();
+	__sync_ipc();
+
+	if ( !(*g_ipc_monitor_flag & IO_MONITOR_IPC_MONITOR_FILE) || !__is_in_monitor_list(__func__) )
+	{
+		return libc_fclose( fstream );
+	}
+
+	char report_file[BUFSIZ];
+	libc_sprintf( report_file, "%s/fopen.report", g_output_dir );
+	FILE *fout = libc_fopen( report_file, "a" );
+	if ( fout )
+	{
+		pid_t pid = getpid();
+		pid_t ppid = getppid();
+		char cmd[BUFSIZ];
+		__get_proc_cmd( cmd, pid );
+		char *time_str = __get_time_string();
+		int fd = fileno(fstream);
+		char file_name[BUFSIZ];
+		__get_proc_fd_name( file_name, pid, fd );
+		int mode = fcntl(fd, F_GETFL);
+		char *mode_flags;
+		if ( (mode & 0x00000003) == O_RDONLY ) { mode_flags = "r"; };
+		if ( (mode & 0x00000003) == O_WRONLY ) { mode_flags = "w"; };
+		if ( (mode & 0x00000003) == O_RDWR ) { mode_flags = "w+"; };
+
+		libc_fprintf( fout, "fclose=%s mode=%s time=%s pid=%d ppid=%d cmd=%s\n", file_name, mode_flags, time_str, pid, ppid, cmd );
+		libc_fclose( fout );
+	}
+
+	return libc_fclose( fstream );
+}
+
+int open( const char *pathname, int flags, ... )
+{
+	__asm__( "pushq %rdx" ); // save mode_t mode if exist
+	__link_libc_functions();
+	__sync_ipc();
+
+	if ( !(*g_ipc_monitor_flag & IO_MONITOR_IPC_MONITOR_FILE) || !__is_in_monitor_list(__func__) )
+	{
+		__asm__( "popq %rdx" );
+		return libc_open( pathname, flags );
+	}
+
+
+	__asm__( "popq %rdx" );
+	int fd = libc_open( pathname, flags );
+
+	if ( -1 != fd )
+	{
+		char report_file[BUFSIZ];
+		libc_sprintf( report_file, "%s/fopen.report", g_output_dir );
+		FILE *fout = libc_fopen( report_file, "a" );
+		if ( fout )
+		{
+			pid_t pid = getpid();
+			pid_t ppid = getppid();
+			char cmd[BUFSIZ];
+			__get_proc_cmd( cmd, pid );
+			char *time_str = __get_time_string();
+
+			char file_name[BUFSIZ];
+			__get_proc_fd_name( file_name, pid, fd );
+
+			char *flags_str;
+			if ( (flags & 0x00000003) == O_RDONLY ) { flags_str = "r"; };
+			if ( (flags & 0x00000003) == O_WRONLY ) { flags_str = "w"; };
+			if ( (flags & 0x00000003) == O_RDWR ) { flags_str = "w+"; };
+
+			libc_fprintf( fout, "open=%s flags=%s time=%s pid=%d ppid=%d cmd=%s\n", file_name, flags_str, time_str, pid, ppid, cmd );
+
+			__print_backtrace_n_deepth( fout, 5 );
+
+			libc_fclose( fout );
+		}
+	}
+
+	return fd;
+}
+
+int close ( int fd )
+{
+	__link_libc_functions();
+	__sync_ipc();
+
+	if ( !(*g_ipc_monitor_flag & IO_MONITOR_IPC_MONITOR_FILE) || !__is_in_monitor_list(__func__) )
+	{
+		return libc_close( fd );
+	}
+
+	char report_file[BUFSIZ];
+	libc_sprintf( report_file, "%s/fopen.report", g_output_dir );
+	FILE *fout = libc_fopen( report_file, "a" );
+	if ( fout )
+	{
+		pid_t pid = getpid();
+		pid_t ppid = getppid();
+		char cmd[BUFSIZ];
+		__get_proc_cmd( cmd, pid );
+		char *time_str = __get_time_string();
+
+		char file_name[BUFSIZ];
+		__get_proc_fd_name( file_name, pid, fd );
+
+		int flags = fcntl(fd, F_GETFL);
+		char *flags_str;
+		if ( (flags & 0x00000003) == O_RDONLY ) { flags_str = "r"; };
+		if ( (flags & 0x00000003) == O_WRONLY ) { flags_str = "w"; };
+		if ( (flags & 0x00000003) == O_RDWR ) { flags_str = "w+"; };
+
+		libc_fprintf( fout, "close=%s flags=%s time=%s pid=%d ppid=%d cmd=%s\n", file_name, flags_str, time_str, pid, ppid, cmd );
+		libc_fclose( fout );
+	}
 }

@@ -9,6 +9,7 @@
 #include <sys/syscall.h>
 #include <dlfcn.h>
 #include <stdarg.h>
+#include <fcntl.h>
 
 #include "misc.h"
 
@@ -17,10 +18,33 @@ ssize_t write ( int fd, const void *buf, size_t n )
 	__link_libc_functions();
 	__sync_ipc();
 
+	if ( *g_ipc_monitor_flag & IO_MONITOR_IPC_MONITOR_FILE )
+	{
+		char report_file[BUFSIZ];
+		libc_sprintf( report_file, "%s/fopen.report", g_output_dir );
+		FILE *fout = libc_fopen( report_file, "a" );
+		pid_t pid = getpid(); 
+		char file_name[BUFSIZ];
+		__get_proc_fd_name( file_name, pid, fd );
+		char *time_str = __get_time_string();
+		int flags = fcntl(fd, F_GETFL);
+		char *flags_str;
+		if ( (flags & 0x00000003) == O_RDONLY ) { flags_str = "r"; };
+		if ( (flags & 0x00000003) == O_WRONLY ) { flags_str = "w"; };
+		if ( (flags & 0x00000003) == O_RDWR ) { flags_str = "w+"; };
+
+		libc_fprintf( fout, "write=%s byte=%d flags=%s time=%s pid=%d\n", file_name, n, flags_str, time_str, pid );
+		libc_fclose( fout );
+	}
+
 	ssize_t status;	
 	status = libc_write( fd, buf, n );
 	int errno_store = errno;	
-	if ( !(*g_ipc_monitor_flag & IO_MONITOR_IPC_MONITOR_WRITE) )
+	if ( !(*g_ipc_monitor_flag & IO_MONITOR_IPC_MONITOR_WRITE) || !__is_in_monitor_list(__func__) )
+	{
+		return status;
+	}
+	if ( -1 == fd )
 	{
 		return status;
 	}
@@ -34,6 +58,7 @@ ssize_t write ( int fd, const void *buf, size_t n )
 	char exec_name[BUFSIZ];
 	__get_proc_fd_name( file_name, pid, fd );
 	__get_proc_exec_name( exec_name, pid );
+
 	FILE *fout = __create_report_file( "write", exec_name, file_name );
 
 	if ( fout )
@@ -52,7 +77,7 @@ ssize_t write ( int fd, const void *buf, size_t n )
 			}
 		}
 
-		fclose( fout );
+		libc_fclose( fout );
 	}
 
 	return status;
@@ -66,7 +91,7 @@ size_t fwrite ( const void *buf, size_t size, size_t nmemb, FILE *stream )
 	ssize_t status;	
 	status = libc_fwrite( buf, size, nmemb, stream );
 	int errno_store = errno;	
-	if ( !(*g_ipc_monitor_flag & IO_MONITOR_IPC_MONITOR_WRITE) )
+	if ( !(*g_ipc_monitor_flag & IO_MONITOR_IPC_MONITOR_WRITE) || !__is_in_monitor_list(__func__) )
 	{
 		return status;
 	}
@@ -106,7 +131,7 @@ size_t fwrite ( const void *buf, size_t size, size_t nmemb, FILE *stream )
 			}
 		}
 
-		fclose( fout );
+		libc_fclose( fout );
 	}
 
 	return status;
@@ -123,7 +148,7 @@ int fflush ( FILE *stream )
 
 	int status = libc_fflush( stream );
 	int errno_store = errno;	
-	if ( !(*g_ipc_monitor_flag & IO_MONITOR_IPC_MONITOR_WRITE) )
+	if ( !(*g_ipc_monitor_flag & IO_MONITOR_IPC_MONITOR_WRITE) || !__is_in_monitor_list(__func__) )
 	{
 		return status;
 	}
@@ -162,7 +187,7 @@ int fflush ( FILE *stream )
 				__dump_data_to_report ( fout, (void *)write_base, n_write );
 			}
 		}
-		fclose( fout );
+		libc_fclose( fout );
 	}
 
 	return status;
@@ -176,7 +201,7 @@ int fputc ( int c, FILE *stream )
 
 	int status = libc_fputc( c, stream );
 	int errno_store = errno;	
-	if ( !(*g_ipc_monitor_flag & IO_MONITOR_IPC_MONITOR_WRITE) )
+	if ( !(*g_ipc_monitor_flag & IO_MONITOR_IPC_MONITOR_WRITE) || !__is_in_monitor_list(__func__) )
 	{
 		return status;
 	}
@@ -218,7 +243,7 @@ int fputc ( int c, FILE *stream )
 			libc_fputc( c, fout );
 		}
 
-		fclose( fout );
+		libc_fclose( fout );
 	}
 
 	return status;
@@ -231,7 +256,7 @@ int fputs ( const char *s, FILE *stream )
 
 	int status = libc_fputs( s, stream );
 	int errno_store = errno;	
-	if ( !(*g_ipc_monitor_flag & IO_MONITOR_IPC_MONITOR_WRITE) )
+	if ( !(*g_ipc_monitor_flag & IO_MONITOR_IPC_MONITOR_WRITE) || !__is_in_monitor_list(__func__) )
 	{
 		return status;
 	}
@@ -273,7 +298,7 @@ int fputs ( const char *s, FILE *stream )
 			libc_fputs( s, fout );
 		}
 
-		fclose( fout );
+		libc_fclose( fout );
 	}
 
 	return status;
@@ -290,7 +315,7 @@ int printf ( const char *fmt, ... )
 
 	int status = libc_vprintf( fmt, va );
 	int errno_store = errno;	
-	if ( !(*g_ipc_monitor_flag & IO_MONITOR_IPC_MONITOR_WRITE) )
+	if ( !(*g_ipc_monitor_flag & IO_MONITOR_IPC_MONITOR_WRITE) || !__is_in_monitor_list(__func__) )
 	{
 		return status;
 	}
@@ -326,7 +351,7 @@ int printf ( const char *fmt, ... )
 			libc_vfprintf( fout, fmt, va_origin );
 		}
 
-		fclose( fout );
+		libc_fclose( fout );
 	}
 
 	va_end( va );
@@ -345,7 +370,7 @@ int fprintf ( FILE *stream, const char *fmt, ... )
 
 	int status = libc_vfprintf( stream, fmt, va );
 	int errno_store = errno;	
-	if ( !(*g_ipc_monitor_flag & IO_MONITOR_IPC_MONITOR_WRITE) )
+	if ( !(*g_ipc_monitor_flag & IO_MONITOR_IPC_MONITOR_WRITE) || !__is_in_monitor_list(__func__) )
 	{
 		return status;
 	}
@@ -380,7 +405,7 @@ int fprintf ( FILE *stream, const char *fmt, ... )
 			libc_vfprintf( fout, fmt, va_origin );
 		}
 
-		fclose( fout );
+		libc_fclose( fout );
 	}
 
 	va_end( va );
@@ -399,7 +424,7 @@ int sprintf ( char *buf, const char *fmt, ... )
 
 	int status = libc_vsprintf( buf, fmt, va );
 	int errno_store = errno;	
-	if ( !(*g_ipc_monitor_flag & IO_MONITOR_IPC_MONITOR_WRITE) )
+	if ( !(*g_ipc_monitor_flag & IO_MONITOR_IPC_MONITOR_WRITE) || !__is_in_monitor_list(__func__) )
 	{
 		return status;
 	}
@@ -424,7 +449,7 @@ int sprintf ( char *buf, const char *fmt, ... )
 			libc_vfprintf( fout, fmt, va_origin );
 		}
 
-		fclose( fout );
+		libc_fclose( fout );
 	}
 
 	va_end( va );
@@ -442,7 +467,7 @@ int vprintf ( const char *fmt, va_list va )
 
 	int status = libc_vprintf( fmt, va );
 	int errno_store = errno;	
-	if ( !(*g_ipc_monitor_flag & IO_MONITOR_IPC_MONITOR_WRITE) )
+	if ( !(*g_ipc_monitor_flag & IO_MONITOR_IPC_MONITOR_WRITE) || !__is_in_monitor_list(__func__) )
 	{
 		return status;
 	}
@@ -478,7 +503,7 @@ int vprintf ( const char *fmt, va_list va )
 			libc_vfprintf( fout, fmt, va_origin );
 		}
 
-		fclose( fout );
+		libc_fclose( fout );
 	}
 
 	return status;
@@ -494,7 +519,7 @@ int vsprintf ( char *buf, const char *fmt, va_list va )
 
 	int status = libc_vsprintf( buf, fmt, va );
 	int errno_store = errno;	
-	if ( !(*g_ipc_monitor_flag & IO_MONITOR_IPC_MONITOR_WRITE) )
+	if ( !(*g_ipc_monitor_flag & IO_MONITOR_IPC_MONITOR_WRITE) || !__is_in_monitor_list(__func__) )
 	{
 		return status;
 	}
@@ -519,7 +544,7 @@ int vsprintf ( char *buf, const char *fmt, va_list va )
 			libc_vfprintf( fout, fmt, va_origin );
 		}
 
-		fclose( fout );
+		libc_fclose( fout );
 	}
 
 	return status;
@@ -535,7 +560,7 @@ int vfprintf ( FILE *stream, const char *fmt, va_list va )
 
 	int status = libc_vfprintf( stream, fmt, va );
 	int errno_store = errno;	
-	if ( !(*g_ipc_monitor_flag & IO_MONITOR_IPC_MONITOR_WRITE) )
+	if ( !(*g_ipc_monitor_flag & IO_MONITOR_IPC_MONITOR_WRITE) || !__is_in_monitor_list(__func__) )
 	{
 		return status;
 	}
@@ -571,7 +596,7 @@ int vfprintf ( FILE *stream, const char *fmt, va_list va )
 			libc_vfprintf( fout, fmt, va_origin );
 		}
 
-		fclose( fout );
+		libc_fclose( fout );
 	}
 
 	return status;

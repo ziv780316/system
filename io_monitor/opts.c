@@ -169,6 +169,7 @@ void parse_cmd_options ( int argc, char **argv )
 
 			case 'i':
 				g_opts.interactive_mode = true;
+				g_opts.monitor_type = MONITOR_BOTH;
 				break;
 
 			case '?':

@@ -15,7 +15,10 @@ extern void __get_proc_fd_name ( char *buf, pid_t pid, int fd );
 extern void __get_proc_exec_name ( char *buf, pid_t pid );
 extern void __get_proc_cmd ( char *buf, pid_t pid );
 extern void __print_all_parent_cmd ( FILE *fout, pid_t pid_start, pid_t pid_end );
+extern char * __get_time_string();
 extern void __print_backtrace ();
+extern void __print_backtrace_n_deepth ( FILE *fout, int n_deepth );
+extern int __is_in_monitor_list ( const char *func );
 
 extern ssize_t (*libc_read) (int , void *, size_t);
 extern ssize_t (*libc_write) (int , const void *, size_t);
@@ -40,8 +43,15 @@ extern void (*libc_exit) (int);
 extern void (*libc__exit) (int);
 extern int (*libc_unlink) (const char *pathname);
 extern int (*libc_remove) (const char *pathname);
+extern int (*libc_open) (const char *, int, ...);
+extern int (*libc_close) (int);
+extern FILE *(*libc_fopen) (const char *, const char*);
+extern int (*libc_fclose) (FILE *);
 
+extern char *g_output_dir;
 extern unsigned int *g_ipc_monitor_flag;
+extern int g_ipc_n_monitor_function;
+extern char *g_ipc_monitor_functions;
 
 #endif
 
